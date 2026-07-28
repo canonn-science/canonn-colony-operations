@@ -1,0 +1,248 @@
+.bgs-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px 16px 48px;
+}
+
+.bgs-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+
+  h1 {
+    margin: 0 0 4px;
+    font-size: 1.6rem;
+    color: var(--color-accent);
+  }
+
+  p {
+    margin: 0;
+    color: var(--color-text-2);
+  }
+}
+
+.bgs-logo {
+  display: block;
+  width: 96px;
+  height: 96px;
+  flex-shrink: 0;
+}
+
+.bgs-error {
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-danger);
+  border-radius: 6px;
+  padding: 16px;
+  color: var(--color-text-bright);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.bgs-table-wrap {
+  overflow-x: auto;
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border-muted);
+  border-radius: 6px;
+}
+
+.bgs-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+
+  th,
+  td {
+    padding: 10px 14px;
+    text-align: left;
+    white-space: nowrap;
+  }
+
+  thead th {
+    position: sticky;
+    top: 0;
+    background-color: var(--color-surface-2);
+    color: var(--color-accent);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    font-size: 0.75rem;
+    border-bottom: 1px solid var(--color-border-muted);
+  }
+
+  .bgs-sort-header {
+    padding: 0;
+    border: none;
+    background: none;
+    color: inherit;
+    font: inherit;
+    text-transform: inherit;
+    letter-spacing: inherit;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .bgs-sort-header:hover:not(:disabled),
+  .bgs-sort-header:focus-visible:not(:disabled) {
+    color: var(--color-link-hover);
+  }
+
+  .bgs-sort-header:disabled {
+    cursor: default;
+  }
+
+  .bgs-sort-indicator {
+    font-size: 0.7em;
+  }
+
+  tbody tr {
+    border-bottom: 1px solid var(--color-surface-5);
+  }
+
+  tbody tr:hover {
+    background-color: var(--color-surface-hover);
+  }
+
+  tbody tr:last-child {
+    border-bottom: none;
+  }
+
+  td {
+    color: var(--color-text);
+  }
+}
+
+.bgs-col-influence,
+.bgs-col-distance {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.bgs-influence--present {
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+.bgs-col-factions {
+  width: 110px;
+}
+
+.bgs-faction-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 28px;
+  width: 100px;
+}
+
+.bgs-faction-bar {
+  flex: 1 1 0;
+  min-width: 3px;
+  max-width: 16px;
+  min-height: 2px;
+  background-color: var(--color-text);
+  border-radius: 1px 1px 0 0;
+  cursor: default;
+  transition: opacity 0.1s ease;
+}
+
+.bgs-faction-bar:hover {
+  opacity: 0.7;
+}
+
+.bgs-faction-bar--canonn {
+  background-color: var(--color-accent);
+}
+
+.bgs-row-progress td {
+  padding: 24px 16px;
+  white-space: normal;
+}
+
+.bgs-progress {
+  max-width: 420px;
+  margin: 0 auto;
+}
+
+.bgs-progress-label {
+  color: var(--color-text-2);
+  font-size: 0.85rem;
+  text-align: center;
+  margin-bottom: 8px;
+}
+
+.bgs-progress-track {
+  height: 8px;
+  border-radius: 4px;
+  background-color: var(--color-surface-4);
+  overflow: hidden;
+}
+
+.bgs-progress-fill {
+  height: 100%;
+  background-color: var(--color-accent);
+  transition: width 0.15s ease;
+}
+
+.bgs-system-link {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--color-link);
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.bgs-system-link:hover:not(:disabled),
+.bgs-system-link:focus-visible:not(:disabled) {
+  color: var(--color-link-hover);
+  text-decoration: underline;
+}
+
+.bgs-system-link:disabled {
+  color: inherit;
+  cursor: default;
+}
+
+.bgs-row-skeleton td {
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
+
+.bgs-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  margin-top: 20px;
+  flex-wrap: wrap;
+}
+
+.bgs-pager-status {
+  color: var(--color-text-2);
+  font-size: 0.9rem;
+  text-align: center;
+}
+
+.bgs-pager-count {
+  margin-left: 6px;
+  color: var(--color-text-muted);
+}
+
+@media (max-width: 600px) {
+  .bgs-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .bgs-logo {
+    width: 72px;
+    height: 72px;
+  }
+}

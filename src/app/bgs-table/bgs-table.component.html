@@ -1,0 +1,222 @@
+<div class="bgs-container">
+  <div class="bgs-header">
+    <div class="bgs-title">
+      <h1>Canonn Colony Operations</h1>
+      <p>Controlling factions, Canonn / Canonn Deep Space Research influence, and system architects.</p>
+    </div>
+    <app-canonn-logo [animating]="loading()" class="bgs-logo"></app-canonn-logo>
+  </div>
+
+  @if (errorMessage(); as message) {
+    <div class="bgs-error">
+      <p>{{ message }}</p>
+      <button mat-flat-button color="primary" type="button" (click)="retry()">Retry</button>
+    </div>
+  } @else {
+    <div class="bgs-table-wrap">
+      <table class="bgs-table">
+        <thead>
+          <tr>
+            <th>System Name</th>
+            <th
+              class="bgs-col-distance"
+              [title]="anchorName() ? 'distance from ' + anchorName() : 'distance'"
+            >Distance</th>
+            <th class="bgs-col-factions">
+              <button
+                type="button"
+                class="bgs-sort-header"
+                (click)="sortByColumn('factionCount')"
+                [disabled]="loading()"
+                title="Sort by number of factions"
+              >
+                Factions
+                @if (sortIndicator('factionCount'); as indicator) {
+                  <span class="bgs-sort-indicator">{{ indicator }}</span>
+                }
+              </button>
+            </th>
+            <th>
+              <button
+                type="button"
+                class="bgs-sort-header"
+                (click)="sortByColumn('controllingFaction')"
+                [disabled]="loading()"
+                title="Sort by controlling faction"
+              >
+                Controlling Faction
+                @if (sortIndicator('controllingFaction'); as indicator) {
+                  <span class="bgs-sort-indicator">{{ indicator }}</span>
+                }
+              </button>
+            </th>
+            <th class="bgs-col-influence">
+              <button
+                type="button"
+                class="bgs-sort-header"
+                (click)="sortByColumn('canonn')"
+                [disabled]="loading()"
+                title="Sort by Canonn influence"
+              >
+                CANO
+                @if (sortIndicator('canonn'); as indicator) {
+                  <span class="bgs-sort-indicator">{{ indicator }}</span>
+                }
+              </button>
+            </th>
+            <th class="bgs-col-influence">
+              <button
+                type="button"
+                class="bgs-sort-header"
+                (click)="sortByColumn('cdsr')"
+                [disabled]="loading()"
+                title="Sort by Canonn Deep Space Research influence"
+              >
+                CDSR
+                @if (sortIndicator('cdsr'); as indicator) {
+                  <span class="bgs-sort-indicator">{{ indicator }}</span>
+                }
+              </button>
+            </th>
+            <th>
+              <button
+                type="button"
+                class="bgs-sort-header"
+                (click)="sortByColumn('architect')"
+                [disabled]="loading()"
+                title="Sort by architect"
+              >
+                Architect
+                @if (sortIndicator('architect'); as indicator) {
+                  <span class="bgs-sort-indicator">{{ indicator }}</span>
+                }
+              </button>
+            </th>
+            <th>
+              <button
+                type="button"
+                class="bgs-sort-header"
+                (click)="sortByColumn('preferredFaction')"
+                [disabled]="loading()"
+                title="Sort by preferred faction"
+              >
+                Preferred Faction
+                @if (sortIndicator('preferredFaction'); as indicator) {
+                  <span class="bgs-sort-indicator">{{ indicator }}</span>
+                }
+              </button>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          @if (loadProgress(); as progress) {
+            <tr class="bgs-row-progress">
+              <td colspan="8">
+                <div class="bgs-progress">
+                  <div class="bgs-progress-label">
+                    Loading full dataset to sort… {{ progress.loaded }} / {{ progress.total }} pages
+                  </div>
+                  <div class="bgs-progress-track">
+                    <div
+                      class="bgs-progress-fill"
+                      [style.width.%]="progress.total ? (progress.loaded / progress.total) * 100 : 0"
+                    ></div>
+                  </div>
+                </div>
+              </td>
+            </tr>
+          } @else if (loading() && visibleRows().length === 0) {
+            @for (skeletonRow of skeletonRows; track skeletonRow) {
+              <tr class="bgs-row-skeleton" aria-hidden="true">
+                <td><span class="skeleton skeleton-line skeleton-w80"></span></td>
+                <td><span class="skeleton skeleton-line skeleton-w40"></span></td>
+                <td><span class="skeleton" style="display: block; width: 80%; height: 28px;"></span></td>
+                <td><span class="skeleton skeleton-line skeleton-w60"></span></td>
+                <td><span class="skeleton skeleton-line skeleton-w40"></span></td>
+                <td><span class="skeleton skeleton-line skeleton-w40"></span></td>
+                <td><span class="skeleton skeleton-line skeleton-w60"></span></td>
+                <td><span class="skeleton skeleton-line skeleton-w60"></span></td>
+              </tr>
+            }
+          } @else {
+            @for (row of visibleRows(); track row.systemName) {
+              <tr>
+                <td>
+                  <button
+                    type="button"
+                    class="bgs-system-link"
+                    (click)="selectAnchor(row)"
+                    [disabled]="loading()"
+                    [title]="'Sort all systems by distance from ' + row.systemName"
+                  >{{ row.systemName }}</button>
+                </td>
+                <td class="bgs-col-distance">
+                  @let distance = distanceTo(row);
+                  {{ distance !== null ? (distance | number: '1.2-2') + ' ly' : '—' }}
+                </td>
+                <td class="bgs-col-factions">
+                  @if (row.factions.length > 0) {
+                    <div class="bgs-faction-chart" [attr.aria-label]="factionsSummary(row)">
+                      @for (faction of row.factions; track faction.name) {
+                        <div
+                          class="bgs-faction-bar"
+                          [class.bgs-faction-bar--canonn]="faction.name === canonnFactionName"
+                          [style.height.%]="faction.influencePercent"
+                          [title]="faction.name + ': ' + (faction.influencePercent | number: '1.1-1') + '%'"
+                        ></div>
+                      }
+                    </div>
+                  } @else {
+                    <span>—</span>
+                  }
+                </td>
+                <td>{{ row.controllingFaction ?? '—' }}</td>
+                <td class="bgs-col-influence" [class.bgs-influence--present]="row.canonnInfluence !== null">
+                  {{ row.canonnInfluence !== null ? (row.canonnInfluence | number: '1.1-1') + '%' : '—' }}
+                </td>
+                <td class="bgs-col-influence" [class.bgs-influence--present]="row.cdsrInfluence !== null">
+                  {{ row.cdsrInfluence !== null ? (row.cdsrInfluence | number: '1.1-1') + '%' : '—' }}
+                </td>
+                <td>{{ row.architect ?? '—' }}</td>
+                <td>{{ row.preferredFaction ?? '—' }}</td>
+              </tr>
+            }
+          }
+        </tbody>
+      </table>
+    </div>
+
+    <div class="bgs-pager">
+      <button
+        mat-stroked-button
+        type="button"
+        (click)="previousPage()"
+        [disabled]="pageIndex() === 0 || loading()"
+        aria-label="Previous page"
+      >
+        <fa-icon [icon]="faChevronLeft" aria-hidden="true"></fa-icon>
+        Previous
+      </button>
+
+      <span class="bgs-pager-status">
+        Page {{ pageIndex() + 1 }}@if (displayTotalPages(); as total) {
+          <span> of {{ total }}</span>
+        }
+        @if (displayTotalCount(); as count) {
+          <span class="bgs-pager-count">({{ count | number }} systems)</span>
+        }
+      </span>
+
+      <button
+        mat-stroked-button
+        type="button"
+        (click)="nextPage()"
+        [disabled]="!hasNextPage() || loading()"
+        aria-label="Next page"
+      >
+        Next
+        <fa-icon [icon]="faChevronRight" aria-hidden="true"></fa-icon>
+      </button>
+    </div>
+  }
+</div>
