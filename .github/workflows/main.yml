@@ -36,7 +36,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test -- --watch=false
-      - run: npm run build -- --base-href "/canonn-colony-operations/"
+      - run: npm run build
       - name: Setup Pages
         uses: actions/configure-pages@v3
       - name: Upload artifact
