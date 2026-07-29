@@ -1,0 +1,77 @@
+<h2 mat-dialog-title>Assign an architect</h2>
+
+<mat-dialog-content>
+  <form class="assign-form" [formGroup]="form" (ngSubmit)="send()">
+    <div class="assign-system">
+      <span class="assign-system-label">System Name</span>
+      <span class="assign-system-name">{{ systemName }}</span>
+    </div>
+
+    <mat-form-field appearance="outline" subscriptSizing="dynamic">
+      <mat-label>Your Name</mat-label>
+      <input matInput formControlName="yourName" maxlength="120" autocomplete="off" />
+      @if (form.controls.yourName.hasError('required') && form.controls.yourName.touched) {
+        <mat-error>Tell us who's reporting this.</mat-error>
+      }
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" subscriptSizing="dynamic">
+      <mat-label>Architect</mat-label>
+      <input
+        matInput
+        formControlName="architect"
+        [matAutocomplete]="architectAuto"
+        maxlength="120"
+        autocomplete="off"
+      />
+      <mat-autocomplete #architectAuto="matAutocomplete">
+        @for (name of architectSuggestions(); track name) {
+          <mat-option [value]="name">{{ name }}</mat-option>
+        }
+      </mat-autocomplete>
+      @if (form.controls.architect.hasError('required') && form.controls.architect.touched) {
+        <mat-error>Name the architect, or choose "Nobody" as the affiliation.</mat-error>
+      } @else if (!architectRequired()) {
+        <mat-hint>Leave blank to record the system as having no architect.</mat-hint>
+      }
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" subscriptSizing="dynamic">
+      <mat-label>Affiliation</mat-label>
+      <mat-select formControlName="affiliation" (selectionChange)="onAffiliationChosen()">
+        @for (option of affiliationOptions; track option.value) {
+          <mat-option [value]="option.value">{{ option.label }}</mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" subscriptSizing="dynamic">
+      <mat-label>Preferred Faction</mat-label>
+      <mat-select formControlName="preferredFaction" (selectionChange)="onFactionChosen()">
+        <mat-option [value]="dontKnowFaction">Don't know</mat-option>
+        @for (faction of factionOptions(); track faction) {
+          <mat-option [value]="faction">{{ faction }}</mat-option>
+        }
+      </mat-select>
+      @if (factionNote(); as note) {
+        <mat-hint>{{ note }}</mat-hint>
+      }
+    </mat-form-field>
+
+    @if (sendError(); as error) {
+      <p class="assign-error" role="alert">{{ error }}</p>
+    }
+  </form>
+</mat-dialog-content>
+
+<mat-dialog-actions align="end">
+  <button mat-stroked-button type="button" (click)="cancel()" [disabled]="sending()">Cancel</button>
+  <button mat-flat-button color="primary" type="button" (click)="send()" [disabled]="sending()">
+    @if (sending()) {
+      <mat-spinner diameter="18" class="assign-spinner"></mat-spinner>
+      Sending…
+    } @else {
+      {{ canRetry() ? 'Retry' : 'Send' }}
+    }
+  </button>
+</mat-dialog-actions>

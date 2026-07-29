@@ -1,0 +1,37 @@
+.assign-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: min(420px, 70vw);
+  padding-top: 8px;
+}
+
+.assign-system {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.assign-system-label {
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.assign-system-name {
+  color: var(--color-accent);
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.assign-error {
+  margin: 0;
+  color: var(--color-danger);
+  font-size: 0.85rem;
+}
+
+.assign-spinner {
+  display: inline-block;
+  margin-right: 8px;
+}

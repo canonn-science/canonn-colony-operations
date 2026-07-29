@@ -3,12 +3,26 @@ import { DecimalPipe } from '@angular/common';
 import { FormControl, ReactiveFormsModule } from '@angular/forms';
 import { MatAutocompleteModule } from '@angular/material/autocomplete';
 import { MatButtonModule } from '@angular/material/button';
+import { MatDialog } from '@angular/material/dialog';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { FaIconComponent } from '@fortawesome/angular-fontawesome';
 import { faChevronLeft, faChevronRight, faMagnifyingGlass } from '@fortawesome/free-solid-svg-icons';
-import { BGS_PAGE_SIZE, BgsRow, CANONN_FACTION, CDSR_FACTION, CanonnBgsService, TypeaheadSystem } from '../canonn-bgs.service';
+import {
+  BGS_PAGE_SIZE,
+  BgsRow,
+  CANONN_FACTION,
+  CDSR_FACTION,
+  CanonnBgsService,
+  TypeaheadSystem,
+  rowWithAssignment,
+} from '../canonn-bgs.service';
+import {
+  AssignArchitectDialogComponent,
+  AssignArchitectDialogData,
+} from '../assign-architect-dialog/assign-architect-dialog.component';
 import { CanonnLogoComponent } from '../canonn-logo/canonn-logo.component';
+import { ArchitectSubmission } from '../data/architect-form';
 import { distanceLy } from '../data/distance';
 
 /**
@@ -37,10 +51,6 @@ const DEFAULT_SEARCH_SYSTEM = 'Varati';
 const SUGGESTION_DEBOUNCE_MS = 300;
 /** Minimum query length before firing a typeahead lookup. */
 const SUGGESTION_MIN_LENGTH = 3;
-
-/** The Canonn Architect Registry form, and the entry ID for its "System Name" field. */
-const ARCHITECT_FORM_URL = 'https://docs.google.com/forms/d/e/1FAIpQLSfXin9fy62qiVurl1HRypwELW-nh6GATmxODgqMOPhb-S2sCA/viewform';
-const ARCHITECT_FORM_SYSTEM_NAME_ENTRY = 'entry.451477697';
 
 function columnValue(row: BgsRow, column: SortColumn): string | number | null {
   switch (column) {
@@ -95,6 +105,7 @@ function toAnchorPoint(system: TypeaheadSystem): AnchorPoint {
 })
 export class BgsTableComponent implements OnDestroy {
   private readonly bgsService = inject(CanonnBgsService);
+  private readonly dialog = inject(MatDialog);
 
   protected readonly faChevronLeft = faChevronLeft;
   protected readonly faChevronRight = faChevronRight;
@@ -300,15 +311,34 @@ export class BgsTableComponent implements OnDestroy {
     return row.factions.map(f => `${f.name}: ${f.influencePercent.toFixed(1)}%`).join(', ');
   }
 
-  /** The Architect Registry form, pre-filled with this system's name — shown as "Assign" for a colony with no architect on file. */
-  protected assignArchitectUrl(row: BgsRow): string {
-    const params = new URLSearchParams({ usp: 'pp_url', [ARCHITECT_FORM_SYSTEM_NAME_ENTRY]: row.systemName });
-    return `${ARCHITECT_FORM_URL}?${params.toString()}`;
+  /**
+   * Opens the Architect Registry dialog for a colony with no architect on file. Anything it
+   * submits is folded straight into the loaded rows, so the table updates without a refetch.
+   */
+  protected openAssignDialog(row: BgsRow): void {
+    const data: AssignArchitectDialogData = { row };
+    this.dialog
+      .open<AssignArchitectDialogComponent, AssignArchitectDialogData, ArchitectSubmission>(
+        AssignArchitectDialogComponent,
+        { data, autoFocus: 'first-tabbable', restoreFocus: true },
+      )
+      .afterClosed()
+      .subscribe(submission => {
+        if (submission) {
+          this.applyAssignment(submission);
+        }
+      });
   }
 
-  /** The user is off to submit themselves as architect — don't keep serving the pre-assignment cache. */
-  protected onAssignClick(): void {
-    this.bgsService.invalidateArchitectsCache();
+  /** Reflects a successful submission in whichever row collections are currently loaded. */
+  private applyAssignment(submission: ArchitectSubmission): void {
+    const patch = (rows: BgsRow[]): BgsRow[] =>
+      rows.map(row => (row.systemName === submission.systemName ? rowWithAssignment(row, submission) : row));
+    this.rows.update(patch);
+    const full = this.fullDataset();
+    if (full) {
+      this.fullDataset.set(patch(full));
+    }
   }
 
   /** Bound to the search input's (input) event; debounces suggestion lookups. */

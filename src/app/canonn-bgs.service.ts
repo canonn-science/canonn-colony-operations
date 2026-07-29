@@ -1,5 +1,11 @@
 import { Injectable } from '@angular/core';
 import { BUILD_ID } from './build-info';
+import { ARCHITECT_FORM_ACTION, ArchitectSubmission, buildArchitectFormBody } from './data/architect-form';
+import {
+  ArchitectInfo,
+  ArchitectRegistryRow,
+  buildArchitectInfoMap,
+} from './data/architect-registry';
 import { logger } from './data/logger';
 
 /** Base URL for the Canonn cloud-function query API. */
@@ -25,13 +31,15 @@ const ARCHITECTS_SHEET_TIMEOUT_MS = 8000;
 const HTTP_TIMEOUT_MS = 20000;
 /** Number of automatic retries for transient failures. */
 const HTTP_RETRY_COUNT = 2;
+/** Timeout for a form submission (ms). Not retried — see {@link CanonnBgsService.submitAssignment}. */
+const FORM_SUBMIT_TIMEOUT_MS = 15000;
 
 /** Records per BGS page, per the API contract. */
 export const BGS_PAGE_SIZE = 50;
 
-/** localStorage key the architects lookup is persisted under. */
-const ARCHITECTS_CACHE_KEY = 'canonn-bgs:architects-cache:v1';
-/** How long the architects lookup is cached before it's refetched. */
+/** localStorage key the architect registry is persisted under. */
+const ARCHITECTS_CACHE_KEY = 'canonn-bgs:architects-cache:v2';
+/** How long the architect registry is cached before it's refetched. */
 const ARCHITECTS_CACHE_DURATION_MS = 2 * 60 * 60 * 1000;
 
 export const CANONN_FACTION = 'Canonn';
@@ -149,38 +157,47 @@ export interface BgsPage {
   totalPages: number;
 }
 
-interface ArchitectInfo {
-  architect: string;
-  preferredFaction: string;
-}
-
 interface ArchitectsCachePayload {
   fetchedAt: number;
   /** The build that wrote this cache; a mismatch (a new build was deployed) invalidates it. */
   buildId: string;
-  entries: [string, ArchitectInfo][];
+  rows: ArchitectRegistryRow[];
+}
+
+/**
+ * A copy of `row` showing the architect details of a just-submitted assignment, so the table
+ * reflects the submission immediately instead of waiting for Google to republish the registry.
+ */
+export function rowWithAssignment(row: BgsRow, submission: ArchitectSubmission): BgsRow {
+  return {
+    ...row,
+    architect: submission.architect || null,
+    preferredFaction: submission.preferredFaction || null,
+  };
 }
 
 /**
  * Parses the architects Google Form response sheet: tab-separated, header row first, columns
  * matched by name (not position) so a reordered/added column in the sheet doesn't break this.
- * Later rows overwrite earlier ones for the same system, matching a form's edit-by-resubmission
- * model and the Cloud Function's own last-write-wins behaviour. Returns an empty map (which the
+ * Rows are returned in sheet order (oldest first), which is what makes "the last row wins"
+ * and the dialog's "most recent answer" defaults work. Returns an empty array (which the
  * caller treats as "couldn't use this") if the expected columns aren't found at all.
  */
-function parseArchitectsTsv(text: string): Map<string, ArchitectInfo> {
-  const map = new Map<string, ArchitectInfo>();
+function parseArchitectsTsv(text: string): ArchitectRegistryRow[] {
+  const rows: ArchitectRegistryRow[] = [];
   const lines = text.replace(/\r\n/g, '\n').split('\n').filter(line => line.length > 0);
   if (lines.length === 0) {
-    return map;
+    return rows;
   }
 
   const header = lines[0].split('\t');
   const systemNameIndex = header.indexOf('System Name');
   const architectNameIndex = header.indexOf('Architect Name');
   const preferredFactionIndex = header.indexOf('Preferred Faction');
+  // Optional: the Cloud Function's copy of the data has it, but it's not load-bearing for the table.
+  const affiliationIndex = header.indexOf('Canonn Architect');
   if (systemNameIndex === -1 || architectNameIndex === -1 || preferredFactionIndex === -1) {
-    return map;
+    return rows;
   }
 
   for (let i = 1; i < lines.length; i++) {
@@ -189,12 +206,14 @@ function parseArchitectsTsv(text: string): Map<string, ArchitectInfo> {
     if (!systemName) {
       continue;
     }
-    map.set(systemName, {
+    rows.push({
+      systemName,
       architect: cells[architectNameIndex]?.trim() ?? '',
+      affiliation: affiliationIndex === -1 ? '' : (cells[affiliationIndex]?.trim() ?? ''),
       preferredFaction: cells[preferredFactionIndex]?.trim() ?? '',
     });
   }
-  return map;
+  return rows;
 }
 
 /**
@@ -250,7 +269,7 @@ function summarizeFactionState(
  * Caching:
  * - The search token is fetched once per session and reused for every page.
  * - Each fetched page is memoised in memory so revisiting it (Previous/Next) is free.
- * - The architects lookup is fetched once (across all its pages) and persisted in
+ * - The architect registry is fetched once (across all its pages) and persisted in
  *   localStorage for {@link ARCHITECTS_CACHE_DURATION_MS}, since it changes far less
  *   often than BGS influence.
  */
@@ -258,7 +277,13 @@ function summarizeFactionState(
 export class CanonnBgsService {
   private tokenPromise?: Promise<string>;
   private readonly pagePromises = new Map<number, Promise<BgsPage>>();
-  private architectsPromise?: Promise<Map<string, ArchitectInfo>>;
+  private registryPromise?: Promise<ArchitectRegistryRow[]>;
+  /** The resolved registry, once loaded — what {@link recordAssignment} appends to. */
+  private registryRows: ArchitectRegistryRow[] | null = null;
+  /** When the registry was fetched, preserved across local edits so it still expires on schedule. */
+  private registryFetchedAt = 0;
+  /** {@link registryRows} collapsed to one entry per system; rebuilt when the registry changes. */
+  private architectInfo: Map<string, ArchitectInfo> | null = null;
 
   /** Fetches a page of BGS results (0-based), from cache if it's already been loaded. */
   getPage(page: number): Promise<BgsPage> {
@@ -283,17 +308,68 @@ export class CanonnBgsService {
   }
 
   /**
-   * Clears the persisted (and in-memory) architects lookup so it's refetched on the next
-   * load rather than serving the pre-assignment cache. Called when the user opens the
-   * Architect Registry form to assign themselves — the newly-submitted architect won't be
-   * reflected here yet, but a later refresh should pick it up instead of waiting out the cache.
+   * Every Architect Registry submission, oldest first — the Assign dialog's source for
+   * architect-name suggestions and for what a known architect last answered.
    */
-  invalidateArchitectsCache(): void {
-    this.architectsPromise = undefined;
+  getArchitectRegistry(): Promise<readonly ArchitectRegistryRow[]> {
+    return this.getRegistry();
+  }
+
+  /**
+   * Submits a filled-in Assign dialog to the Architect Registry form.
+   *
+   * Google Forms sends no CORS headers, so this has to go out as an opaque `no-cors` request:
+   * the submission is recorded, but the response is unreadable. A rejection therefore means
+   * "the request never left the browser" (offline, blocked, timed out) — which is the failure
+   * worth offering a retry for — while a resolve means "accepted by Google as far as we can
+   * tell". It's deliberately not retried automatically: a retried POST that actually succeeded
+   * the first time would add a duplicate row to the registry.
+   */
+  async submitAssignment(submission: ArchitectSubmission): Promise<void> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), FORM_SUBMIT_TIMEOUT_MS);
     try {
-      localStorage.removeItem(ARCHITECTS_CACHE_KEY);
-    } catch {
-      // Storage unavailable — nothing to clear.
+      await fetch(ARCHITECT_FORM_ACTION, {
+        method: 'POST',
+        mode: 'no-cors',
+        // A CORS-safelisted content type, so the request needs no preflight (which would fail).
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+        body: buildArchitectFormBody(submission).toString(),
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /**
+   * Folds a just-submitted assignment into everything already loaded — the registry, the
+   * system lookup derived from it, the memoised BGS pages and the persisted cache — so the
+   * new architect shows up straight away, and survives a reload, without waiting for Google
+   * to republish the sheet. The cache's original fetch time is kept, so the authoritative
+   * data is still refetched on the usual schedule.
+   */
+  recordAssignment(submission: ArchitectSubmission): void {
+    const row: ArchitectRegistryRow = {
+      systemName: submission.systemName,
+      architect: submission.architect,
+      affiliation: submission.affiliation,
+      preferredFaction: submission.preferredFaction,
+    };
+
+    if (this.registryRows) {
+      this.registryRows.push(row);
+      this.architectInfo = buildArchitectInfoMap(this.registryRows);
+      this.writeArchitectsCache(this.registryRows, this.registryFetchedAt);
+    }
+
+    for (const [page, promise] of [...this.pagePromises]) {
+      const patched = promise.then(result => ({
+        ...result,
+        rows: result.rows.map(r => (r.systemName === submission.systemName ? rowWithAssignment(r, submission) : r)),
+      }));
+      patched.catch(() => this.pagePromises.delete(page));
+      this.pagePromises.set(page, patched);
     }
   }
 
@@ -322,7 +398,7 @@ export class CanonnBgsService {
   }
 
   private async fetchPage(page: number): Promise<BgsPage> {
-    const [token, architects] = await Promise.all([this.getToken(), this.getArchitects()]);
+    const [token, architects] = await Promise.all([this.getToken(), this.getArchitectInfo()]);
     const response = await this.resilientGet<BgsPageResponse>(`${BGS_ENDPOINT}/${token}/${page}`);
     return {
       page,
@@ -389,42 +465,55 @@ export class CanonnBgsService {
     return this.tokenPromise;
   }
 
-  /** Loads the architect/preferred-faction lookup at most once per session (see class doc). */
-  private getArchitects(): Promise<Map<string, ArchitectInfo>> {
-    if (!this.architectsPromise) {
-      this.architectsPromise = this.loadArchitects().catch(error => {
+  /** The system -> architect lookup the table's rows are built from, derived from the registry once. */
+  private async getArchitectInfo(): Promise<ReadonlyMap<string, ArchitectInfo>> {
+    const rows = await this.getRegistry();
+    if (!this.architectInfo) {
+      this.architectInfo = buildArchitectInfoMap(rows);
+    }
+    return this.architectInfo;
+  }
+
+  /** Loads the architect registry at most once per session (see class doc). */
+  private getRegistry(): Promise<ArchitectRegistryRow[]> {
+    if (!this.registryPromise) {
+      this.registryPromise = this.loadRegistry().catch(error => {
         // Clear the memo so a later page fetch can retry instead of failing forever.
-        this.architectsPromise = undefined;
+        this.registryPromise = undefined;
         throw error;
       });
     }
-    return this.architectsPromise;
+    return this.registryPromise;
   }
 
-  private async loadArchitects(): Promise<Map<string, ArchitectInfo>> {
+  private async loadRegistry(): Promise<ArchitectRegistryRow[]> {
     const cached = this.readArchitectsCache();
     if (cached) {
-      return cached;
+      this.registryRows = cached.rows;
+      this.registryFetchedAt = cached.fetchedAt;
+      return cached.rows;
     }
 
-    const map = (await this.loadArchitectsFromSheet()) ?? (await this.loadArchitectsFromApi());
-    this.writeArchitectsCache(map);
-    return map;
+    const rows = (await this.loadRegistryFromSheet()) ?? (await this.loadRegistryFromApi());
+    this.registryRows = rows;
+    this.registryFetchedAt = Date.now();
+    this.writeArchitectsCache(rows, this.registryFetchedAt);
+    return rows;
   }
 
   /**
    * Fast path: fetch the published Google Sheet directly (one request) and parse it
    * ourselves. Returns null — never throws — on any failure, so the caller falls back
-   * to {@link loadArchitectsFromApi} unconditionally.
+   * to {@link loadRegistryFromApi} unconditionally.
    */
-  private async loadArchitectsFromSheet(): Promise<Map<string, ArchitectInfo> | null> {
+  private async loadRegistryFromSheet(): Promise<ArchitectRegistryRow[] | null> {
     try {
       const text = await this.fetchTextOnce(ARCHITECTS_SHEET_URL, ARCHITECTS_SHEET_TIMEOUT_MS);
-      const map = parseArchitectsTsv(text);
-      if (map.size === 0) {
+      const rows = parseArchitectsTsv(text);
+      if (rows.length === 0) {
         return null;
       }
-      return map;
+      return rows;
     } catch (error) {
       logger.warn('Architects sheet fetch failed, falling back to the Cloud Function API.', error);
       return null;
@@ -432,24 +521,26 @@ export class CanonnBgsService {
   }
 
   /** Reliable path: page through the Cloud Function's own architects endpoint. */
-  private async loadArchitectsFromApi(): Promise<Map<string, ArchitectInfo>> {
-    const map = new Map<string, ArchitectInfo>();
+  private async loadRegistryFromApi(): Promise<ArchitectRegistryRow[]> {
+    const rows: ArchitectRegistryRow[] = [];
     for (let page = 0; ; page++) {
       const records = await this.resilientGet<ArchitectRecord[]>(`${ARCHITECTS_ENDPOINT}/${page}`);
       if (records.length === 0) {
         break;
       }
       for (const record of records) {
-        map.set(record['System Name'], {
+        rows.push({
+          systemName: record['System Name'],
           architect: record['Architect Name'],
+          affiliation: record['Canonn Architect'] ?? '',
           preferredFaction: record['Preferred Faction'],
         });
       }
     }
-    return map;
+    return rows;
   }
 
-  private readArchitectsCache(): Map<string, ArchitectInfo> | null {
+  private readArchitectsCache(): { rows: ArchitectRegistryRow[]; fetchedAt: number } | null {
     try {
       const raw = localStorage.getItem(ARCHITECTS_CACHE_KEY);
       if (!raw) {
@@ -464,18 +555,18 @@ export class CanonnBgsService {
       if (Date.now() - payload.fetchedAt >= ARCHITECTS_CACHE_DURATION_MS) {
         return null;
       }
-      return new Map(payload.entries);
+      return { rows: payload.rows, fetchedAt: payload.fetchedAt };
     } catch {
       return null;
     }
   }
 
-  private writeArchitectsCache(map: ReadonlyMap<string, ArchitectInfo>): void {
+  private writeArchitectsCache(rows: readonly ArchitectRegistryRow[], fetchedAt: number): void {
     try {
-      const payload: ArchitectsCachePayload = { fetchedAt: Date.now(), buildId: BUILD_ID, entries: [...map.entries()] };
+      const payload: ArchitectsCachePayload = { fetchedAt, buildId: BUILD_ID, rows: [...rows] };
       localStorage.setItem(ARCHITECTS_CACHE_KEY, JSON.stringify(payload));
     } catch {
-      // Storage full/unavailable (e.g. private browsing) — the in-memory map still serves this session.
+      // Storage full/unavailable (e.g. private browsing) — the in-memory rows still serve this session.
     }
   }
 

@@ -252,6 +252,15 @@
   text-decoration: underline;
 }
 
+// Wears .bgs-system-link's colours, but opens the Assign dialog instead of navigating.
+.bgs-assign-button {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
+
 .bgs-row-skeleton td {
   padding-top: 12px;
   padding-bottom: 12px;

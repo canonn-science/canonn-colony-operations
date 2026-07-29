@@ -232,14 +232,12 @@
                 </td>
                 <td>
                   @if (row.architect === null) {
-                    <a
-                      [href]="assignArchitectUrl(row)"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      class="bgs-system-link"
-                      [title]="'Register as the architect of ' + row.systemName"
-                      (click)="onAssignClick()"
-                    >Assign</a>
+                    <button
+                      type="button"
+                      class="bgs-system-link bgs-assign-button"
+                      [title]="'Register the architect of ' + row.systemName"
+                      (click)="openAssignDialog(row)"
+                    >Assign</button>
                   } @else {
                     {{ row.architect }}
                   }
