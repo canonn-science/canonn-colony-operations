@@ -198,6 +198,20 @@
   opacity: 0.75;
 }
 
+// The ballot-box emoji renders fairly washed-out by default; neutralise its own colours
+// first (grayscale+sepia) then tint to a solid blue, which reads reliably regardless of
+// the source glyph's colours (a plain hue-rotate on the original emoji is font/size-
+// dependent — it came out green at this column's font-size despite testing blue at 40px).
+// Pending (below) overrides this back to plain grayscale.
+.bgs-state-icon--election {
+  filter: grayscale(1) sepia(1) hue-rotate(190deg) saturate(8);
+}
+
+.bgs-state-icon--election.bgs-state-icon--pending {
+  filter: grayscale(1);
+  opacity: 0.75;
+}
+
 .bgs-row-progress td {
   padding: 24px 16px;
   white-space: normal;

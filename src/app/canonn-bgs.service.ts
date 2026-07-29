@@ -64,6 +64,8 @@ interface MinorFactionPresence {
   active_states?: string[];
   /** Upcoming state(s) not yet in effect, e.g. a war or election about to start. */
   pending_states?: string[];
+  /** State(s) that just ended and are in a post-state cooldown, e.g. a war that just concluded. */
+  recovering_states?: string[];
   state?: string;
 }
 
@@ -196,9 +198,11 @@ function parseArchitectsTsv(text: string): Map<string, ArchitectInfo> {
 }
 
 /**
- * Checks Canonn's and CDSR's presences for a matching state (war or election), active or
- * pending. Active wins over pending if a system somehow has both (e.g. one of the two
- * factions is already at war while the other has it merely pending). Details list every
+ * Checks Canonn's and CDSR's presences for a matching state (war or election), active,
+ * pending (about to start next tick), or recovering (just ended, in its post-state
+ * cooldown) — the latter two both render as the "not currently active" (grey) icon.
+ * Active wins over the others if a system somehow has both (e.g. one of the two factions
+ * is already at war while the other merely has it pending). Details list every
  * contributing faction/state pair, for the icon's tooltip.
  */
 function summarizeFactionState(
@@ -206,7 +210,7 @@ function summarizeFactionState(
   matchesState: (state: string) => boolean,
 ): { status: FactionStateStatus; details: string | null } {
   const active: string[] = [];
-  const pending: string[] = [];
+  const notYetActive: string[] = [];
 
   for (const presence of presences) {
     if (!CANONN_FACTION_NAMES.has(presence.name)) {
@@ -220,7 +224,12 @@ function summarizeFactionState(
     }
     for (const state of presence.pending_states ?? []) {
       if (matchesState(state)) {
-        pending.push(`${presence.name}: ${state} (pending)`);
+        notYetActive.push(`${presence.name}: ${state} (pending)`);
+      }
+    }
+    for (const state of presence.recovering_states ?? []) {
+      if (matchesState(state)) {
+        notYetActive.push(`${presence.name}: ${state} (recovering)`);
       }
     }
   }
@@ -228,8 +237,8 @@ function summarizeFactionState(
   if (active.length > 0) {
     return { status: 'active', details: active.join('\n') };
   }
-  if (pending.length > 0) {
-    return { status: 'pending', details: pending.join('\n') };
+  if (notYetActive.length > 0) {
+    return { status: 'pending', details: notYetActive.join('\n') };
   }
   return { status: null, details: null };
 }

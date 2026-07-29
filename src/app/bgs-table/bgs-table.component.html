@@ -209,14 +209,14 @@
                     <span
                       class="bgs-state-icon"
                       [class.bgs-state-icon--pending]="row.warState === 'pending'"
-                      [title]="(row.warState === 'pending' ? 'War pending:\n' : 'At war:\n') + row.warDetails"
+                      [title]="(row.warState === 'active' ? 'At war:\n' : '') + row.warDetails"
                     >🔫</span>
                   }
                   @if (row.electionState) {
                     <span
-                      class="bgs-state-icon"
+                      class="bgs-state-icon bgs-state-icon--election"
                       [class.bgs-state-icon--pending]="row.electionState === 'pending'"
-                      [title]="(row.electionState === 'pending' ? 'Election pending:\n' : 'Election:\n') + row.electionDetails"
+                      [title]="(row.electionState === 'active' ? 'Election:\n' : '') + row.electionDetails"
                     >🗳️</span>
                   }
                   @if (!row.warState && !row.electionState) {
