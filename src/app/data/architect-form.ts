@@ -41,9 +41,6 @@ const LISTED_PREFERRED_FACTIONS: ReadonlySet<string> = new Set(['Canonn', 'Canon
 /** Google's sentinel value for "the answer is in the `.other_option_response` field". */
 const OTHER_OPTION = '__other_option__';
 
-/** Architect name recorded when the user answers that the system isn't a colony at all. */
-export const NOBODY_ARCHITECT = 'Nobody';
-
 /** One filled-in Architect Registry form, ready to submit. */
 export interface ArchitectSubmission {
   /** The commander doing the reporting ("Your Name"). */

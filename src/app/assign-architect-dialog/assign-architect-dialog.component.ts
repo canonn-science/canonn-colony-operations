@@ -15,7 +15,6 @@ import {
   AFFILIATION_OPTIONS,
   AFFILIATION_UNKNOWN,
   ArchitectSubmission,
-  NOBODY_ARCHITECT,
 } from '../data/architect-form';
 import { ArchitectRegistryRow, architectNames, findArchitectProfile, suggestArchitects } from '../data/architect-registry';
 
@@ -81,8 +80,8 @@ export class AssignArchitectDialogComponent {
       nonNullable: true,
       validators: [Validators.required, Validators.maxLength(120)],
     }),
-    architect: new FormControl('', { nonNullable: true, validators: [Validators.maxLength(120)] }),
     affiliation: new FormControl(AFFILIATION_UNKNOWN, { nonNullable: true, validators: [Validators.required] }),
+    architect: new FormControl('', { nonNullable: true, validators: [Validators.maxLength(120)] }),
     preferredFaction: new FormControl(DONT_KNOW_FACTION, { nonNullable: true }),
   });
 
@@ -200,6 +199,24 @@ export class AssignArchitectDialogComponent {
       control.setValidators(validators);
       control.updateValueAndValidity({ emitEvent: false });
     });
+
+    // A system that isn't a colony has no architect to name — enforce that by clearing and
+    // locking the field rather than just relying on the submission to blank it out.
+    effect(() => {
+      const control = this.form.controls.architect;
+      const notAColony = this.affiliationValue() === AFFILIATION_NOT_A_COLONY;
+      if (notAColony) {
+        if (control.value !== '') {
+          control.setValue('', { emitEvent: false });
+          this.architectValue.set('');
+        }
+        if (control.enabled) {
+          control.disable({ emitEvent: false });
+        }
+      } else if (control.disabled) {
+        control.enable({ emitEvent: false });
+      }
+    });
   }
 
   protected onAffiliationChosen(): void {
@@ -254,13 +271,12 @@ export class AssignArchitectDialogComponent {
 
   private submission(): ArchitectSubmission {
     const value = this.form.getRawValue();
-    const architect = value.architect.trim();
     return {
       yourName: value.yourName.trim(),
       systemName: this.systemName,
-      // "Nobody — the system is not a colony" still has to answer the form's required
-      // Architect Name question; record the answer itself rather than making the user type it.
-      architect: architect || (value.affiliation === AFFILIATION_NOT_A_COLONY ? NOBODY_ARCHITECT : ''),
+      // The architect control is cleared and locked whenever "not a colony" is chosen (see
+      // the effect above), so there's nothing to trim here — it's already blank.
+      architect: value.affiliation === AFFILIATION_NOT_A_COLONY ? '' : value.architect.trim(),
       affiliation: value.affiliation,
       preferredFaction: value.preferredFaction,
     };

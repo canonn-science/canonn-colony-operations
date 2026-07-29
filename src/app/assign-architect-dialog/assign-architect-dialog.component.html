@@ -16,6 +16,15 @@
     </mat-form-field>
 
     <mat-form-field appearance="outline" subscriptSizing="dynamic">
+      <mat-label>Affiliation</mat-label>
+      <mat-select formControlName="affiliation" (selectionChange)="onAffiliationChosen()">
+        @for (option of affiliationOptions; track option.value) {
+          <mat-option [value]="option.value">{{ option.label }}</mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" subscriptSizing="dynamic">
       <mat-label>Architect</mat-label>
       <input
         matInput
@@ -32,17 +41,8 @@
       @if (form.controls.architect.hasError('required') && form.controls.architect.touched) {
         <mat-error>Name the architect, or choose "Nobody" as the affiliation.</mat-error>
       } @else if (!architectRequired()) {
-        <mat-hint>Leave blank to record the system as having no architect.</mat-hint>
+        <mat-hint>Architect must be blank if not a colony</mat-hint>
       }
-    </mat-form-field>
-
-    <mat-form-field appearance="outline" subscriptSizing="dynamic">
-      <mat-label>Affiliation</mat-label>
-      <mat-select formControlName="affiliation" (selectionChange)="onAffiliationChosen()">
-        @for (option of affiliationOptions; track option.value) {
-          <mat-option [value]="option.value">{{ option.label }}</mat-option>
-        }
-      </mat-select>
     </mat-form-field>
 
     <mat-form-field appearance="outline" subscriptSizing="dynamic">

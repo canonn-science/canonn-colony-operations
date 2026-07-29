@@ -16,6 +16,7 @@ const ROW: BgsRow = {
   canonnInfluence: 20,
   cdsrInfluence: 40,
   architect: null,
+  notAColony: false,
   preferredFaction: null,
   // Highest influence first, as the service builds them.
   factions: [
@@ -158,10 +159,16 @@ describe('AssignArchitectDialogComponent', () => {
     expect(dialogRef.close).toHaveBeenCalled();
   });
 
-  it('records "Nobody" as the architect when the system is not a colony', async () => {
-    await chooseAffiliation(AFFILIATION_NOT_A_COLONY);
-    await component['send']();
+  it('clears and locks the architect field, and submits it blank, when the system is not a colony', async () => {
+    form().controls.architect.setValue('Someone Typed This First');
+    await fixture.whenStable();
 
-    expect(service.submitAssignment.mock.calls[0][0].architect).toBe('Nobody');
+    await chooseAffiliation(AFFILIATION_NOT_A_COLONY);
+
+    expect(form().controls.architect.value).toBe('');
+    expect(form().controls.architect.disabled).toBe(true);
+
+    await component['send']();
+    expect(service.submitAssignment.mock.calls[0][0].architect).toBe('');
   });
 });
