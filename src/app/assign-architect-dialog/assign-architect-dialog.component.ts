@@ -17,6 +17,7 @@ import {
   ArchitectSubmission,
 } from '../data/architect-form';
 import { ArchitectRegistryRow, architectNames, findArchitectProfile, suggestArchitects } from '../data/architect-registry';
+import { readYourName, writeYourName } from '../data/your-name';
 
 /** The system the dialog is assigning an architect to. */
 export interface AssignArchitectDialogData {
@@ -25,9 +26,6 @@ export interface AssignArchitectDialogData {
 
 /** The `preferredFaction` value meaning "Don't know" — sent to the form as no answer at all. */
 const DONT_KNOW_FACTION = '';
-
-/** localStorage key the reporting commander's own name is remembered under. */
-const YOUR_NAME_KEY = 'canonn-bgs:your-name:v1';
 
 const CANONN_FACTION_NAMES: ReadonlySet<string> = new Set([CANONN_FACTION, CDSR_FACTION]);
 
@@ -163,7 +161,7 @@ export class AssignArchitectDialogComponent {
   protected readonly architectRequired = computed(() => this.affiliationValue() !== AFFILIATION_NOT_A_COLONY);
 
   constructor() {
-    this.form.controls.yourName.setValue(this.readYourName());
+    this.form.controls.yourName.setValue(readYourName());
 
     const controls = this.form.controls;
     controls.architect.valueChanges.pipe(takeUntilDestroyed()).subscribe(value => this.architectValue.set(value));
@@ -254,7 +252,7 @@ export class AssignArchitectDialogComponent {
     try {
       await this.bgsService.submitAssignment(submission);
       this.bgsService.recordAssignment(submission);
-      this.writeYourName(submission.yourName);
+      writeYourName(submission.yourName);
       this.dialogRef.close(submission);
     } catch (error) {
       this.sendError.set(
@@ -302,22 +300,6 @@ export class AssignArchitectDialogComponent {
   private setFaction(value: string): void {
     if (this.form.controls.preferredFaction.value !== value) {
       this.form.controls.preferredFaction.setValue(value);
-    }
-  }
-
-  private readYourName(): string {
-    try {
-      return localStorage.getItem(YOUR_NAME_KEY) ?? '';
-    } catch {
-      return '';
-    }
-  }
-
-  private writeYourName(name: string): void {
-    try {
-      localStorage.setItem(YOUR_NAME_KEY, name);
-    } catch {
-      // Storage unavailable (e.g. private browsing) — the name just won't be remembered.
     }
   }
 }

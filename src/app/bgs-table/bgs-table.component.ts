@@ -1,11 +1,13 @@
 import { ChangeDetectionStrategy, Component, OnDestroy, computed, effect, inject, signal } from '@angular/core';
 import { DecimalPipe } from '@angular/common';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormControl, ReactiveFormsModule } from '@angular/forms';
 import { MatAutocompleteModule } from '@angular/material/autocomplete';
 import { MatButtonModule } from '@angular/material/button';
 import { MatDialog } from '@angular/material/dialog';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
+import { MatSelectModule } from '@angular/material/select';
 import { FaIconComponent } from '@fortawesome/angular-fontawesome';
 import { faCheck, faChevronLeft, faChevronRight, faCopy, faMagnifyingGlass } from '@fortawesome/free-solid-svg-icons';
 import {
@@ -23,7 +25,9 @@ import {
 } from '../assign-architect-dialog/assign-architect-dialog.component';
 import { CanonnLogoComponent } from '../canonn-logo/canonn-logo.component';
 import { ArchitectSubmission } from '../data/architect-form';
+import { architectNames, suggestArchitects } from '../data/architect-registry';
 import { distanceLy } from '../data/distance';
+import { readYourName } from '../data/your-name';
 
 /**
  * How the table is currently ordered:
@@ -36,6 +40,14 @@ type Mode = 'paged' | 'distance' | 'column';
 /** Columns the user can click a header to sort by. */
 type SortColumn = 'canonn' | 'cdsr' | 'controllingFaction' | 'architect' | 'preferredFaction' | 'factionCount';
 type SortDirection = 'asc' | 'desc';
+
+/** The Architect quick filter's modes: everyone, systems with no architect, or one named architect. */
+type ArchitectFilterMode = 'all' | 'none' | 'name';
+/** The Faction quick filter's modes: everyone, only Canonn-affiliated systems, or one named faction. */
+type FactionFilterMode = 'all' | 'canonn' | 'name';
+
+/** Page sizes the "Page size" quick filter offers. */
+const PAGE_SIZE_OPTIONS = [10, 20, 50, 100] as const;
 
 /** A named point in space the Distance column can be measured from. A BgsRow satisfies this too. */
 interface AnchorPoint {
@@ -96,6 +108,7 @@ function toAnchorPoint(system: TypeaheadSystem): AnchorPoint {
     MatButtonModule,
     MatFormFieldModule,
     MatInputModule,
+    MatSelectModule,
     FaIconComponent,
     CanonnLogoComponent,
   ],
@@ -157,28 +170,111 @@ export class BgsTableComponent implements OnDestroy {
   private lastSuggestionQuery: string | null = null;
   private suggestionGeneration = 0;
 
-  private readonly sortedRows = computed<BgsRow[] | null>(() => {
+  // --- quick filters ------------------------------------------------------------------------
+  protected readonly pageSizeOptions = PAGE_SIZE_OPTIONS;
+  protected readonly pageSize = signal<number>(BGS_PAGE_SIZE);
+  protected readonly warElectionOnly = signal(false);
+  protected readonly architectFilterMode = signal<ArchitectFilterMode>('all');
+  private readonly architectFilterName = signal('');
+  protected readonly factionFilterMode = signal<FactionFilterMode>('all');
+  private readonly factionFilterName = signal('');
+
+  /** Text boxes for the Architect/Faction quick filters — separate from the *applied* filter, so typing doesn't filter until submitted. */
+  protected readonly architectFilterControl = new FormControl('', { nonNullable: true });
+  protected readonly factionFilterControl = new FormControl('', { nonNullable: true });
+  private readonly architectFilterQuery = signal('');
+  private readonly factionFilterQuery = signal('');
+
+  /** Every architect name in the registry, for the Architect quick filter's typeahead. */
+  private readonly architectRegistryNames = signal<string[]>([]);
+  protected readonly architectFilterSuggestions = computed(() =>
+    suggestArchitects(this.architectRegistryNames(), this.architectFilterQuery()),
+  );
+  /** Every faction name seen so far — grows as more of the dataset is loaded. */
+  private readonly knownFactionNames = computed(() => {
+    const names = new Set<string>();
+    for (const row of this.fullDataset() ?? this.rows()) {
+      for (const faction of row.factions) {
+        names.add(faction.name);
+      }
+    }
+    return [...names].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+  });
+  protected readonly factionFilterSuggestions = computed(() =>
+    suggestArchitects(this.knownFactionNames(), this.factionFilterQuery()),
+  );
+
+  protected readonly filtersActive = computed(
+    () => this.warElectionOnly() || this.architectFilterMode() !== 'all' || this.factionFilterMode() !== 'all',
+  );
+
+  /**
+   * Whether the table is paginating client-side over {@link fullDataset} rather than fetching
+   * server-paged results — required by a non-default page size or any quick filter (there's no
+   * server-side support for either), and by the existing 'distance'/'column' sort modes. Sticky:
+   * once the full dataset has been fetched there's no reason to go back to incremental paging.
+   */
+  protected readonly usingFullDataset = computed(
+    () =>
+      this.mode() !== 'paged' ||
+      this.filtersActive() ||
+      this.pageSize() !== BGS_PAGE_SIZE ||
+      this.fullDataset() !== null,
+  );
+
+  /** {@link fullDataset}, narrowed by the active quick filters. */
+  private readonly filteredDataset = computed<BgsRow[] | null>(() => {
     const full = this.fullDataset();
     if (!full) {
+      return null;
+    }
+    let rows = full;
+    if (this.warElectionOnly()) {
+      rows = rows.filter(row => row.warState !== null || row.electionState !== null);
+    }
+    switch (this.architectFilterMode()) {
+      case 'none':
+        rows = rows.filter(row => row.architect === null);
+        break;
+      case 'name': {
+        const key = this.architectFilterName().toLowerCase();
+        rows = rows.filter(row => (row.architect ?? '').toLowerCase() === key);
+        break;
+      }
+    }
+    switch (this.factionFilterMode()) {
+      case 'canonn':
+        rows = rows.filter(row => row.factions.some(faction => this.canonnFactionNames.has(faction.name)));
+        break;
+      case 'name': {
+        const key = this.factionFilterName().toLowerCase();
+        rows = rows.filter(row => row.factions.some(faction => faction.name.toLowerCase() === key));
+        break;
+      }
+    }
+    return rows;
+  });
+
+  private readonly sortedRows = computed<BgsRow[] | null>(() => {
+    const base = this.filteredDataset();
+    if (!base) {
       return null;
     }
     switch (this.mode()) {
       case 'distance': {
         const anchorPoint = this.selectedAnchor();
-        return anchorPoint
-          ? [...full].sort((a, b) => distanceLy(anchorPoint, a) - distanceLy(anchorPoint, b))
-          : null;
+        return anchorPoint ? [...base].sort((a, b) => distanceLy(anchorPoint, a) - distanceLy(anchorPoint, b)) : base;
       }
       case 'column': {
         const column = this.sortColumn();
         if (!column) {
-          return null;
+          return base;
         }
         const direction = this.sortDirection();
-        return [...full].sort((a, b) => compareColumnValues(columnValue(a, column), columnValue(b, column), direction));
+        return [...base].sort((a, b) => compareColumnValues(columnValue(a, column), columnValue(b, column), direction));
       }
       default:
-        return null;
+        return base;
     }
   });
 
@@ -203,28 +299,30 @@ export class BgsTableComponent implements OnDestroy {
 
   /** The rows for the currently-visible page, regardless of mode. */
   protected readonly visibleRows = computed<BgsRow[]>(() => {
-    if (this.mode() !== 'paged') {
+    if (this.usingFullDataset()) {
       const sorted = this.sortedRows();
       if (!sorted) {
         return [];
       }
-      const start = this.pageIndex() * BGS_PAGE_SIZE;
-      return sorted.slice(start, start + BGS_PAGE_SIZE);
+      const size = this.pageSize();
+      const start = this.pageIndex() * size;
+      return sorted.slice(start, start + size);
     }
     return this.rows();
   });
 
   protected readonly displayTotalCount = computed(() => {
-    if (this.mode() !== 'paged') {
+    if (this.usingFullDataset()) {
       return this.sortedRows()?.length ?? null;
     }
     return this.totalCount();
   });
 
   protected readonly displayTotalPages = computed(() => {
-    if (this.mode() !== 'paged') {
+    if (this.usingFullDataset()) {
       const count = this.sortedRows()?.length;
-      return count != null ? Math.max(1, Math.ceil(count / BGS_PAGE_SIZE)) : null;
+      const size = this.pageSize();
+      return count != null ? Math.max(1, Math.ceil(count / size)) : null;
     }
     return this.totalPages();
   });
@@ -236,6 +334,8 @@ export class BgsTableComponent implements OnDestroy {
 
   constructor() {
     void this.loadPage(0);
+    void this.loadArchitectFilterNames();
+    this.architectFilterControl.setValue(readYourName());
 
     // Keep the search box showing whatever system the Distance column is currently
     // measured from — the first-loaded system, a search result, or the current top row
@@ -245,6 +345,21 @@ export class BgsTableComponent implements OnDestroy {
       const name = this.anchorName();
       if (name !== null) {
         this.systemSearchControl.setValue(name, { emitEvent: false });
+      }
+    });
+
+    this.architectFilterControl.valueChanges
+      .pipe(takeUntilDestroyed())
+      .subscribe(value => this.architectFilterQuery.set(value));
+    this.factionFilterControl.valueChanges
+      .pipe(takeUntilDestroyed())
+      .subscribe(value => this.factionFilterQuery.set(value));
+
+    // A quick filter or a non-default page size needs the full dataset — fetch it the moment
+    // one becomes active (sortByColumn/selectAnchorPoint already do the same for sort modes).
+    effect(() => {
+      if (this.usingFullDataset()) {
+        void this.ensureFullDataset();
       }
     });
   }
@@ -272,7 +387,7 @@ export class BgsTableComponent implements OnDestroy {
     if (this.pageIndex() === 0) {
       return;
     }
-    if (this.mode() !== 'paged') {
+    if (this.usingFullDataset()) {
       this.pageIndex.update(p => p - 1);
     } else {
       void this.loadPage(this.pageIndex() - 1);
@@ -283,7 +398,7 @@ export class BgsTableComponent implements OnDestroy {
     if (!this.hasNextPage()) {
       return;
     }
-    if (this.mode() !== 'paged') {
+    if (this.usingFullDataset()) {
       this.pageIndex.update(p => p + 1);
     } else {
       void this.loadPage(this.pageIndex() + 1);
@@ -291,11 +406,67 @@ export class BgsTableComponent implements OnDestroy {
   }
 
   protected retry(): void {
-    if (this.mode() !== 'paged') {
+    if (this.usingFullDataset()) {
       void this.ensureFullDataset();
     } else {
       void this.loadPage(this.pageIndex());
     }
+  }
+
+  protected setPageSize(size: number): void {
+    this.pageSize.set(size);
+    this.pageIndex.set(0);
+  }
+
+  protected toggleWarElection(): void {
+    this.warElectionOnly.update(active => !active);
+    this.pageIndex.set(0);
+  }
+
+  protected setArchitectFilterMode(mode: 'all' | 'none'): void {
+    this.architectFilterMode.set(mode);
+    this.architectFilterName.set('');
+    this.pageIndex.set(0);
+  }
+
+  protected onArchitectFilterOptionSelected(name: string): void {
+    this.architectFilterControl.setValue(name, { emitEvent: false });
+    this.architectFilterQuery.set(name);
+    this.applyArchitectFilterName();
+  }
+
+  protected applyArchitectFilterName(): void {
+    const name = this.architectFilterControl.value.trim();
+    if (!name) {
+      this.setArchitectFilterMode('all');
+      return;
+    }
+    this.architectFilterMode.set('name');
+    this.architectFilterName.set(name);
+    this.pageIndex.set(0);
+  }
+
+  protected setFactionFilterMode(mode: 'all' | 'canonn'): void {
+    this.factionFilterMode.set(mode);
+    this.factionFilterName.set('');
+    this.pageIndex.set(0);
+  }
+
+  protected onFactionFilterOptionSelected(name: string): void {
+    this.factionFilterControl.setValue(name, { emitEvent: false });
+    this.factionFilterQuery.set(name);
+    this.applyFactionFilterName();
+  }
+
+  protected applyFactionFilterName(): void {
+    const name = this.factionFilterControl.value.trim();
+    if (!name) {
+      this.setFactionFilterMode('all');
+      return;
+    }
+    this.factionFilterMode.set('name');
+    this.factionFilterName.set(name);
+    this.pageIndex.set(0);
   }
 
   /** Sorts the whole table by the given column — ascending, then descending on a repeat click. */
@@ -471,25 +642,44 @@ export class BgsTableComponent implements OnDestroy {
     }
   }
 
-  /** Fetches the full dataset once (subsequent re-sorts just reorder what's already cached). */
+  /** In-flight full-dataset fetch, so the effect below and a deliberate sort/filter don't race to start a second one. */
+  private fullDatasetPromise: Promise<void> | null = null;
+
+  /** Fetches the full dataset once (subsequent re-sorts/filters just reorder or narrow what's already cached). */
   private async ensureFullDataset(): Promise<void> {
     if (this.fullDataset()) {
       return;
     }
+    if (this.fullDatasetPromise) {
+      return this.fullDatasetPromise;
+    }
     this.loading.set(true);
     this.errorMessage.set(null);
+    this.fullDatasetPromise = (async () => {
+      try {
+        const all = await this.bgsService.getAllRows((loaded, total) => {
+          this.loadProgress.set({ loaded, total });
+        });
+        this.fullDataset.set(all);
+      } catch (error) {
+        this.errorMessage.set(
+          error instanceof Error ? `Failed to load full dataset: ${error.message}` : 'Failed to load full dataset.',
+        );
+      } finally {
+        this.loading.set(false);
+        this.loadProgress.set(null);
+        this.fullDatasetPromise = null;
+      }
+    })();
+    return this.fullDatasetPromise;
+  }
+
+  /** Loads the architect registry's names once, for the Architect quick filter's typeahead. */
+  private async loadArchitectFilterNames(): Promise<void> {
     try {
-      const all = await this.bgsService.getAllRows((loaded, total) => {
-        this.loadProgress.set({ loaded, total });
-      });
-      this.fullDataset.set(all);
-    } catch (error) {
-      this.errorMessage.set(
-        error instanceof Error ? `Failed to load full dataset: ${error.message}` : 'Failed to load full dataset.',
-      );
-    } finally {
-      this.loading.set(false);
-      this.loadProgress.set(null);
+      this.architectRegistryNames.set(architectNames(await this.bgsService.getArchitectRegistry()));
+    } catch {
+      // Suggestions are a convenience; the filter's free-text entry still works without them.
     }
   }
 }

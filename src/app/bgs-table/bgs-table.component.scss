@@ -49,6 +49,62 @@
   font-size: 0.85rem;
 }
 
+.bgs-quick-filters {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.bgs-filter-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.bgs-filter-label {
+  color: var(--color-text-2);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.bgs-filter-chip {
+  padding: 4px 10px;
+  border: 1px solid var(--color-border-muted);
+  border-radius: 999px;
+  background: none;
+  color: var(--color-text-2);
+  font-size: 0.8rem;
+  cursor: pointer;
+  line-height: 1.4;
+}
+
+.bgs-filter-chip:hover {
+  border-color: var(--color-link-hover);
+  color: var(--color-link-hover);
+}
+
+.bgs-filter-chip--active {
+  background-color: var(--color-accent);
+  border-color: var(--color-accent);
+  color: var(--color-surface);
+}
+
+.bgs-filter-field {
+  width: 160px;
+}
+
+.bgs-filter-field--active .mat-mdc-text-field-wrapper {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -1px;
+}
+
+.bgs-page-size-field {
+  width: 80px;
+}
+
 .bgs-error {
   background-color: var(--color-surface);
   border: 1px solid var(--color-danger);
