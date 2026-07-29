@@ -16,8 +16,8 @@ export const BGS_PAGE_SIZE = 50;
 
 /** localStorage key the architects lookup is persisted under. */
 const ARCHITECTS_CACHE_KEY = 'canonn-bgs:architects-cache:v1';
-/** Architect/preferred-faction data only needs to be fetched once a day. */
-const ARCHITECTS_CACHE_DURATION_MS = 24 * 60 * 60 * 1000;
+/** How long the architects lookup is cached before it's refetched. */
+const ARCHITECTS_CACHE_DURATION_MS = 2 * 60 * 60 * 1000;
 
 export const CANONN_FACTION = 'Canonn';
 export const CDSR_FACTION = 'Canonn Deep Space Research';
@@ -129,7 +129,8 @@ interface ArchitectsCachePayload {
  * - The search token is fetched once per session and reused for every page.
  * - Each fetched page is memoised in memory so revisiting it (Previous/Next) is free.
  * - The architects lookup is fetched once (across all its pages) and persisted in
- *   localStorage for a day, since it changes far less often than BGS influence.
+ *   localStorage for {@link ARCHITECTS_CACHE_DURATION_MS}, since it changes far less
+ *   often than BGS influence.
  */
 @Injectable({ providedIn: 'root' })
 export class CanonnBgsService {
