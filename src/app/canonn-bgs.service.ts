@@ -214,6 +214,21 @@ export class CanonnBgsService {
   }
 
   /**
+   * Clears the persisted (and in-memory) architects lookup so it's refetched on the next
+   * load rather than serving the pre-assignment cache. Called when the user opens the
+   * Architect Registry form to assign themselves — the newly-submitted architect won't be
+   * reflected here yet, but a later refresh should pick it up instead of waiting out the cache.
+   */
+  invalidateArchitectsCache(): void {
+    this.architectsPromise = undefined;
+    try {
+      localStorage.removeItem(ARCHITECTS_CACHE_KEY);
+    } catch {
+      // Storage unavailable — nothing to clear.
+    }
+  }
+
+  /**
    * Fetches every page of the BGS dataset (reusing whatever's already cached) and
    * returns all rows concatenated in their natural order. Used when the table switches
    * into a full-dataset sort (by distance or by influence), which needs every row.

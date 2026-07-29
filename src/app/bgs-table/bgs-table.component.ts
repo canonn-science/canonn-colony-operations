@@ -38,6 +38,10 @@ const SUGGESTION_DEBOUNCE_MS = 300;
 /** Minimum query length before firing a typeahead lookup. */
 const SUGGESTION_MIN_LENGTH = 3;
 
+/** The Canonn Architect Registry form, and the entry ID for its "System Name" field. */
+const ARCHITECT_FORM_URL = 'https://docs.google.com/forms/d/e/1FAIpQLSfXin9fy62qiVurl1HRypwELW-nh6GATmxODgqMOPhb-S2sCA/viewform';
+const ARCHITECT_FORM_SYSTEM_NAME_ENTRY = 'entry.451477697';
+
 function columnValue(row: BgsRow, column: SortColumn): string | number | null {
   switch (column) {
     case 'canonn':
@@ -294,6 +298,17 @@ export class BgsTableComponent implements OnDestroy {
   /** Accessible text equivalent of the Factions mini bar chart, for screen readers. */
   protected factionsSummary(row: BgsRow): string {
     return row.factions.map(f => `${f.name}: ${f.influencePercent.toFixed(1)}%`).join(', ');
+  }
+
+  /** The Architect Registry form, pre-filled with this system's name — shown as "Assign" for a colony with no architect on file. */
+  protected assignArchitectUrl(row: BgsRow): string {
+    const params = new URLSearchParams({ usp: 'pp_url', [ARCHITECT_FORM_SYSTEM_NAME_ENTRY]: row.systemName });
+    return `${ARCHITECT_FORM_URL}?${params.toString()}`;
+  }
+
+  /** The user is off to submit themselves as architect — don't keep serving the pre-assignment cache. */
+  protected onAssignClick(): void {
+    this.bgsService.invalidateArchitectsCache();
   }
 
   /** Bound to the search input's (input) event; debounces suggestion lookups. */

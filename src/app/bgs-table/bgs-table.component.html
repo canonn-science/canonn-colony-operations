@@ -209,7 +209,20 @@
                 <td class="bgs-col-influence" [class.bgs-influence--present]="row.cdsrInfluence !== null">
                   {{ row.cdsrInfluence !== null ? (row.cdsrInfluence | number: '1.1-1') + '%' : '—' }}
                 </td>
-                <td>{{ row.architect ?? '—' }}</td>
+                <td>
+                  @if (row.architect === null) {
+                    <a
+                      [href]="assignArchitectUrl(row)"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="bgs-system-link"
+                      [title]="'Register as the architect of ' + row.systemName"
+                      (click)="onAssignClick()"
+                    >Assign</a>
+                  } @else {
+                    {{ row.architect }}
+                  }
+                </td>
                 <td>{{ row.preferredFaction ?? '—' }}</td>
               </tr>
             }
