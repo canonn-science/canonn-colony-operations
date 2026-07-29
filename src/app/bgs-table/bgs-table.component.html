@@ -192,7 +192,7 @@
                       @for (faction of row.factions; track faction.name) {
                         <div
                           class="bgs-faction-bar"
-                          [class.bgs-faction-bar--canonn]="faction.name === canonnFactionName"
+                          [class.bgs-faction-bar--canonn]="canonnFactionNames.has(faction.name)"
                           [style.height.%]="faction.influencePercent"
                           [title]="faction.name + ': ' + (faction.influencePercent | number: '1.1-1') + '%'"
                         ></div>

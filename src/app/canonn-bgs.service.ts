@@ -20,7 +20,7 @@ const ARCHITECTS_CACHE_KEY = 'canonn-bgs:architects-cache:v1';
 const ARCHITECTS_CACHE_DURATION_MS = 24 * 60 * 60 * 1000;
 
 export const CANONN_FACTION = 'Canonn';
-const CDSR_FACTION = 'Canonn Deep Space Research';
+export const CDSR_FACTION = 'Canonn Deep Space Research';
 
 /**
  * Error thrown by {@link CanonnBgsService}'s HTTP helpers for non-2xx responses.

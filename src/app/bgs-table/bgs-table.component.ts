@@ -7,7 +7,7 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { FaIconComponent } from '@fortawesome/angular-fontawesome';
 import { faChevronLeft, faChevronRight, faMagnifyingGlass } from '@fortawesome/free-solid-svg-icons';
-import { BGS_PAGE_SIZE, BgsRow, CANONN_FACTION, CanonnBgsService, TypeaheadSystem } from '../canonn-bgs.service';
+import { BGS_PAGE_SIZE, BgsRow, CANONN_FACTION, CDSR_FACTION, CanonnBgsService, TypeaheadSystem } from '../canonn-bgs.service';
 import { CanonnLogoComponent } from '../canonn-logo/canonn-logo.component';
 import { distanceLy } from '../data/distance';
 
@@ -95,7 +95,8 @@ export class BgsTableComponent implements OnDestroy {
   protected readonly faChevronLeft = faChevronLeft;
   protected readonly faChevronRight = faChevronRight;
   protected readonly faMagnifyingGlass = faMagnifyingGlass;
-  protected readonly canonnFactionName = CANONN_FACTION;
+  /** Both Canonn-affiliated factions — their bars are highlighted orange in the Factions chart. */
+  protected readonly canonnFactionNames: ReadonlySet<string> = new Set([CANONN_FACTION, CDSR_FACTION]);
   protected readonly encodeURIComponent = encodeURIComponent;
   /** Placeholder rows shown while data is still loading. */
   protected readonly skeletonRows = Array.from({ length: 12 }, (_, i) => i);
