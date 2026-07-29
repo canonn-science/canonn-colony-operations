@@ -20,6 +20,8 @@ export interface ArchitectRegistryRow {
 /** What the registry records about a system: the columns the table's Architect/Preferred Faction show. */
 export interface ArchitectInfo {
   architect: string;
+  /** The "Canonn Architect" answer this system's row was last recorded with — one of the `AFFILIATION_*` values, or ''. */
+  affiliation: string;
   preferredFaction: string;
 }
 
@@ -47,7 +49,7 @@ export function buildArchitectInfoMap(rows: readonly ArchitectRegistryRow[]): Ma
     if (!row.systemName) {
       continue;
     }
-    map.set(row.systemName, { architect: row.architect, preferredFaction: row.preferredFaction });
+    map.set(row.systemName, { architect: row.architect, affiliation: row.affiliation, preferredFaction: row.preferredFaction });
   }
   return map;
 }

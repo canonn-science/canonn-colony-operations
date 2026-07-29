@@ -240,7 +240,9 @@
                   {{ row.cdsrInfluence !== null ? (row.cdsrInfluence | number: '1.1-1') + '%' : '—' }}
                 </td>
                 <td>
-                  @if (row.architect === null) {
+                  @if (row.notAColony) {
+                    —
+                  } @else if (row.architect === null) {
                     <button
                       type="button"
                       class="bgs-system-link bgs-assign-button"

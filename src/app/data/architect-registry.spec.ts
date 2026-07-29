@@ -16,11 +16,18 @@ describe('buildArchitectInfoMap', () => {
       row({ systemName: 'Varati', architect: 'Old', preferredFaction: 'Canonn' }),
       row({ systemName: 'Varati', architect: 'New', preferredFaction: 'Canonn Deep Space Research' }),
     ]);
-    expect(map.get('Varati')).toEqual({ architect: 'New', preferredFaction: 'Canonn Deep Space Research' });
+    expect(map.get('Varati')).toEqual({ architect: 'New', affiliation: '', preferredFaction: 'Canonn Deep Space Research' });
   });
 
   it('skips rows with no system name', () => {
     expect(buildArchitectInfoMap([row({ architect: 'Nobody' })]).size).toBe(0);
+  });
+
+  it('carries the affiliation through, so a "not a colony" answer can be told apart from no answer at all', () => {
+    const map = buildArchitectInfoMap([
+      row({ systemName: 'Varati', architect: '', affiliation: 'Nobody The System Is Not a Colony' }),
+    ]);
+    expect(map.get('Varati')?.affiliation).toBe('Nobody The System Is Not a Colony');
   });
 });
 

@@ -1,6 +1,11 @@
 import { Injectable } from '@angular/core';
 import { BUILD_ID } from './build-info';
-import { ARCHITECT_FORM_ACTION, ArchitectSubmission, buildArchitectFormBody } from './data/architect-form';
+import {
+  AFFILIATION_NOT_A_COLONY,
+  ARCHITECT_FORM_ACTION,
+  ArchitectSubmission,
+  buildArchitectFormBody,
+} from './data/architect-form';
 import {
   ArchitectInfo,
   ArchitectRegistryRow,
@@ -131,6 +136,8 @@ export interface BgsRow {
   /** Canonn Deep Space Research faction influence, as a 0-100 percentage; null if absent. */
   cdsrInfluence: number | null;
   architect: string | null;
+  /** Recorded as "Nobody — the system is not a colony": shown blank rather than offering Assign again. */
+  notAColony: boolean;
   preferredFaction: string | null;
   /** Every minor faction present in the system, sorted by influence descending (highest first). */
   factions: FactionInfluence[];
@@ -170,6 +177,7 @@ export function rowWithAssignment(row: BgsRow, submission: ArchitectSubmission):
   return {
     ...row,
     architect: submission.architect || null,
+    notAColony: submission.affiliation === AFFILIATION_NOT_A_COLONY,
     preferredFaction: submission.preferredFaction || null,
   };
 }
@@ -419,8 +427,11 @@ export class CanonnBgsService {
       canonnInfluence,
       cdsrInfluence,
       // Spansh's colonisation flags are unreliable, so any system without a registered
-      // architect is assignable — never blocked behind a "Not a colony" indicator.
+      // architect is assignable — never blocked behind a "Not a colony" indicator. A
+      // registry row that itself answers "not a colony" is different: that's a confirmed
+      // answer, so it's shown blank rather than inviting another Assign.
       architect: info?.architect || null,
+      notAColony: info?.affiliation === AFFILIATION_NOT_A_COLONY,
       preferredFaction: info?.preferredFaction || null,
       factions: [...presences]
         .sort((a, b) => b.influence - a.influence)
