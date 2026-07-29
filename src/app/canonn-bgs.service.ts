@@ -1,4 +1,5 @@
 import { Injectable } from '@angular/core';
+import { BUILD_ID } from './build-info';
 
 /** Base URL for the Canonn cloud-function query API. */
 const QUERY_BASE = 'https://us-central1-canonn-api-236217.cloudfunctions.net/query';
@@ -118,6 +119,8 @@ interface ArchitectInfo {
 
 interface ArchitectsCachePayload {
   fetchedAt: number;
+  /** The build that wrote this cache; a mismatch (a new build was deployed) invalidates it. */
+  buildId: string;
   entries: [string, ArchitectInfo][];
 }
 
@@ -287,6 +290,11 @@ export class CanonnBgsService {
         return null;
       }
       const payload = JSON.parse(raw) as ArchitectsCachePayload;
+      // A new build was deployed since this was cached — treat it as stale regardless of age,
+      // so a fix or data-shape change ships to every visitor immediately, not after 2 hours.
+      if (payload.buildId !== BUILD_ID) {
+        return null;
+      }
       if (Date.now() - payload.fetchedAt >= ARCHITECTS_CACHE_DURATION_MS) {
         return null;
       }
@@ -298,7 +306,7 @@ export class CanonnBgsService {
 
   private writeArchitectsCache(map: ReadonlyMap<string, ArchitectInfo>): void {
     try {
-      const payload: ArchitectsCachePayload = { fetchedAt: Date.now(), entries: [...map.entries()] };
+      const payload: ArchitectsCachePayload = { fetchedAt: Date.now(), buildId: BUILD_ID, entries: [...map.entries()] };
       localStorage.setItem(ARCHITECTS_CACHE_KEY, JSON.stringify(payload));
     } catch {
       // Storage full/unavailable (e.g. private browsing) — the in-memory map still serves this session.

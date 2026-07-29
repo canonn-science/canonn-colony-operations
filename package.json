@@ -3,8 +3,11 @@
   "version": "0.0.0",
   "scripts": {
     "ng": "ng",
+    "generate-build-info": "node scripts/generate-build-info.js",
     "start": "ng serve",
+    "prestart": "npm run generate-build-info",
     "build": "ng build",
+    "prebuild": "npm run generate-build-info",
     "watch": "ng build --watch --configuration development",
     "test": "ng test"
   },
