@@ -1,11 +1,25 @@
 import { Injectable } from '@angular/core';
 import { BUILD_ID } from './build-info';
+import { logger } from './data/logger';
 
 /** Base URL for the Canonn cloud-function query API. */
 const QUERY_BASE = 'https://us-central1-canonn-api-236217.cloudfunctions.net/query';
 const BGS_ENDPOINT = `${QUERY_BASE}/canonnbgs`;
 const ARCHITECTS_ENDPOINT = `${QUERY_BASE}/canonnbgs/architects`;
 const TYPEAHEAD_ENDPOINT = `${QUERY_BASE}/typeahead`;
+
+/**
+ * The architects Cloud Function endpoint is itself backed by this published Google Sheet
+ * (a Form-response registry) — fetching it directly is a single request instead of paging
+ * through the Cloud Function, so it's tried first. It's unauthenticated, published-to-web
+ * Google infrastructure with no documented stability contract (no ETag/Last-Modified either,
+ * so there's no cheap way to check for changes without fetching), so any failure — CORS,
+ * network, an unrecognised layout — just falls back to the Cloud Function API below.
+ */
+const ARCHITECTS_SHEET_URL =
+  'https://docs.google.com/spreadsheets/d/e/2PACX-1vS5TMBu2KJQBaNqSBropWVdXUcOjz-wJe57e8h4pRPzr7zZ066yjO-H2Z7hqZe-fOVSpzy-7dzAqU2z/pub?gid=1448295597&single=true&output=tsv';
+/** Short timeout for the sheet fetch — it's a fast-path attempt, not a resilient one; fail quick and fall back. */
+const ARCHITECTS_SHEET_TIMEOUT_MS = 8000;
 
 /** Default per-request timeout for remote API calls (ms). */
 const HTTP_TIMEOUT_MS = 20000;
@@ -122,6 +136,42 @@ interface ArchitectsCachePayload {
   /** The build that wrote this cache; a mismatch (a new build was deployed) invalidates it. */
   buildId: string;
   entries: [string, ArchitectInfo][];
+}
+
+/**
+ * Parses the architects Google Form response sheet: tab-separated, header row first, columns
+ * matched by name (not position) so a reordered/added column in the sheet doesn't break this.
+ * Later rows overwrite earlier ones for the same system, matching a form's edit-by-resubmission
+ * model and the Cloud Function's own last-write-wins behaviour. Returns an empty map (which the
+ * caller treats as "couldn't use this") if the expected columns aren't found at all.
+ */
+function parseArchitectsTsv(text: string): Map<string, ArchitectInfo> {
+  const map = new Map<string, ArchitectInfo>();
+  const lines = text.replace(/\r\n/g, '\n').split('\n').filter(line => line.length > 0);
+  if (lines.length === 0) {
+    return map;
+  }
+
+  const header = lines[0].split('\t');
+  const systemNameIndex = header.indexOf('System Name');
+  const architectNameIndex = header.indexOf('Architect Name');
+  const preferredFactionIndex = header.indexOf('Preferred Faction');
+  if (systemNameIndex === -1 || architectNameIndex === -1 || preferredFactionIndex === -1) {
+    return map;
+  }
+
+  for (let i = 1; i < lines.length; i++) {
+    const cells = lines[i].split('\t');
+    const systemName = cells[systemNameIndex]?.trim();
+    if (!systemName) {
+      continue;
+    }
+    map.set(systemName, {
+      architect: cells[architectNameIndex]?.trim() ?? '',
+      preferredFaction: cells[preferredFactionIndex]?.trim() ?? '',
+    });
+  }
+  return map;
 }
 
 /**
@@ -265,6 +315,32 @@ export class CanonnBgsService {
       return cached;
     }
 
+    const map = (await this.loadArchitectsFromSheet()) ?? (await this.loadArchitectsFromApi());
+    this.writeArchitectsCache(map);
+    return map;
+  }
+
+  /**
+   * Fast path: fetch the published Google Sheet directly (one request) and parse it
+   * ourselves. Returns null — never throws — on any failure, so the caller falls back
+   * to {@link loadArchitectsFromApi} unconditionally.
+   */
+  private async loadArchitectsFromSheet(): Promise<Map<string, ArchitectInfo> | null> {
+    try {
+      const text = await this.fetchTextOnce(ARCHITECTS_SHEET_URL, ARCHITECTS_SHEET_TIMEOUT_MS);
+      const map = parseArchitectsTsv(text);
+      if (map.size === 0) {
+        return null;
+      }
+      return map;
+    } catch (error) {
+      logger.warn('Architects sheet fetch failed, falling back to the Cloud Function API.', error);
+      return null;
+    }
+  }
+
+  /** Reliable path: page through the Cloud Function's own architects endpoint. */
+  private async loadArchitectsFromApi(): Promise<Map<string, ArchitectInfo>> {
     const map = new Map<string, ArchitectInfo>();
     for (let page = 0; ; page++) {
       const records = await this.resilientGet<ArchitectRecord[]>(`${ARCHITECTS_ENDPOINT}/${page}`);
@@ -278,8 +354,6 @@ export class CanonnBgsService {
         });
       }
     }
-
-    this.writeArchitectsCache(map);
     return map;
   }
 
@@ -343,6 +417,11 @@ export class CanonnBgsService {
   }
 
   private async fetchJson<T>(url: string, timeoutMs: number): Promise<T> {
+    return JSON.parse(await this.fetchTextOnce(url, timeoutMs)) as T;
+  }
+
+  /** A single fetch attempt (no retry) with a timeout; throws on any non-2xx or network failure. */
+  private async fetchTextOnce(url: string, timeoutMs: number): Promise<string> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
@@ -350,7 +429,7 @@ export class CanonnBgsService {
       if (!response.ok) {
         throw new HttpError(response.status, response.statusText || `HTTP ${response.status}`);
       }
-      return await response.json() as T;
+      return await response.text();
     } finally {
       clearTimeout(timer);
     }
