@@ -4,6 +4,7 @@ import { Injectable } from '@angular/core';
 const QUERY_BASE = 'https://us-central1-canonn-api-236217.cloudfunctions.net/query';
 const BGS_ENDPOINT = `${QUERY_BASE}/canonnbgs`;
 const ARCHITECTS_ENDPOINT = `${QUERY_BASE}/canonnbgs/architects`;
+const TYPEAHEAD_ENDPOINT = `${QUERY_BASE}/typeahead`;
 
 /** Default per-request timeout for remote API calls (ms). */
 const HTTP_TIMEOUT_MS = 20000;
@@ -45,6 +46,8 @@ interface BgsSystemRecord {
   name: string;
   controlling_minor_faction: string | null;
   minor_faction_presences?: MinorFactionPresence[];
+  is_colonised: boolean;
+  is_being_colonised: boolean;
   x: number;
   y: number;
   z: number;
@@ -61,6 +64,19 @@ interface ArchitectRecord {
   'Architect Name': string;
   'Canonn Architect': string;
   'Preferred Faction': string;
+}
+
+/** A typeahead match, with the coordinates needed to sort by distance from it. */
+export interface TypeaheadSystem {
+  name: string;
+  x: number;
+  y: number;
+  z: number;
+}
+
+export interface TypeaheadResponse {
+  min_max?: TypeaheadSystem[];
+  values?: string[];
 }
 
 /** A minor faction's presence in a system, for the Factions column's mini bar chart. */
@@ -138,6 +154,11 @@ export class CanonnBgsService {
     void this.getPage(page).catch(() => {});
   }
 
+  /** Name-suggestion + coordinate lookup, for the "sort by distance from system" search box. */
+  typeahead(query: string): Promise<TypeaheadResponse> {
+    return this.resilientGet<TypeaheadResponse>(`${TYPEAHEAD_ENDPOINT}?q=${encodeURIComponent(query)}`);
+  }
+
   /**
    * Fetches every page of the BGS dataset (reusing whatever's already cached) and
    * returns all rows concatenated in their natural order. Used when the table switches
@@ -176,13 +197,20 @@ export class CanonnBgsService {
   private toRow(record: BgsSystemRecord, architects: ReadonlyMap<string, ArchitectInfo>): BgsRow {
     const presences = record.minor_faction_presences ?? [];
     const info = architects.get(record.name);
+    const canonnInfluence = this.influencePercent(presences, CANONN_FACTION);
+    const cdsrInfluence = this.influencePercent(presences, CDSR_FACTION);
+    // The architects list only covers systems founded via the colonisation initiative;
+    // a system that was never (or isn't yet being) colonised can't have one.
+    const isColony = record.is_colonised || record.is_being_colonised;
     return {
       systemName: record.name,
       controllingFaction: record.controlling_minor_faction ?? null,
-      canonnInfluence: this.influencePercent(presences, CANONN_FACTION),
-      cdsrInfluence: this.influencePercent(presences, CDSR_FACTION),
-      architect: info?.architect || null,
-      preferredFaction: info?.preferredFaction || null,
+      canonnInfluence,
+      cdsrInfluence,
+      architect: isColony ? (info?.architect || null) : 'Not a colony',
+      preferredFaction: isColony
+        ? (info?.preferredFaction || null)
+        : this.dominantCanonnFaction(canonnInfluence, cdsrInfluence),
       factions: [...presences]
         .sort((a, b) => b.influence - a.influence)
         .map(p => ({ name: p.name, influencePercent: p.influence * 100 })),
@@ -195,6 +223,17 @@ export class CanonnBgsService {
   private influencePercent(presences: readonly MinorFactionPresence[], factionName: string): number | null {
     const presence = presences.find(p => p.name === factionName);
     return presence ? presence.influence * 100 : null;
+  }
+
+  /** For non-colony systems: whichever of Canonn/CDSR has more influence here, or null if neither is present. */
+  private dominantCanonnFaction(canonnInfluence: number | null, cdsrInfluence: number | null): string | null {
+    if (canonnInfluence === null && cdsrInfluence === null) {
+      return null;
+    }
+    if (cdsrInfluence === null || (canonnInfluence !== null && canonnInfluence >= cdsrInfluence)) {
+      return CANONN_FACTION;
+    }
+    return CDSR_FACTION;
   }
 
   private getToken(): Promise<string> {

@@ -7,6 +7,38 @@
     <app-canonn-logo [animating]="loading()" class="bgs-logo"></app-canonn-logo>
   </div>
 
+  <div class="bgs-search">
+    <mat-form-field appearance="outline" class="bgs-search-field" subscriptSizing="dynamic">
+      <mat-label>Sort by distance from system</mat-label>
+      <input
+        matInput
+        [formControl]="systemSearchControl"
+        [matAutocomplete]="systemAuto"
+        maxlength="128"
+        (input)="onSearchInput()"
+        (keyup.enter)="onSystemSearchSubmit()"
+      />
+      <mat-autocomplete #systemAuto="matAutocomplete" (optionSelected)="onSystemOptionSelected($event.option.value)">
+        @for (system of filteredSystems(); track system) {
+          <mat-option [value]="system">{{ system }}</mat-option>
+        }
+      </mat-autocomplete>
+    </mat-form-field>
+    <button
+      mat-flat-button
+      color="primary"
+      type="button"
+      (click)="onSystemSearchSubmit()"
+      [disabled]="loading()"
+      aria-label="Sort by distance from this system"
+    >
+      <fa-icon [icon]="faMagnifyingGlass" aria-hidden="true"></fa-icon>
+    </button>
+    @if (searchError(); as err) {
+      <span class="bgs-search-error">{{ err }}</span>
+    }
+  </div>
+
   @if (errorMessage(); as message) {
     <div class="bgs-error">
       <p>{{ message }}</p>
@@ -142,13 +174,13 @@
             @for (row of visibleRows(); track row.systemName) {
               <tr>
                 <td>
-                  <button
-                    type="button"
+                  <a
+                    [href]="'https://inara.cz/elite/starsystem/?search=' + encodeURIComponent(row.systemName)"
+                    target="_blank"
+                    rel="noopener noreferrer"
                     class="bgs-system-link"
-                    (click)="selectAnchor(row)"
-                    [disabled]="loading()"
-                    [title]="'Sort all systems by distance from ' + row.systemName"
-                  >{{ row.systemName }}</button>
+                    [title]="'View ' + row.systemName + ' on Inara'"
+                  >{{ row.systemName }}</a>
                 </td>
                 <td class="bgs-col-distance">
                   @let distance = distanceTo(row);
