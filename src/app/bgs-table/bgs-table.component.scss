@@ -178,6 +178,26 @@
   background-color: var(--color-accent);
 }
 
+.bgs-col-state {
+  text-align: center;
+}
+
+.bgs-state-icon {
+  display: inline-block;
+  font-size: 1.15rem;
+  line-height: 1;
+  cursor: default;
+}
+
+.bgs-state-icon + .bgs-state-icon {
+  margin-left: 6px;
+}
+
+.bgs-state-icon--pending {
+  filter: grayscale(1);
+  opacity: 0.75;
+}
+
 .bgs-row-progress td {
   padding: 24px 16px;
   white-space: normal;

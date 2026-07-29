@@ -68,6 +68,7 @@
                 }
               </button>
             </th>
+            <th class="bgs-col-state">State</th>
             <th>
               <button
                 type="button"
@@ -143,7 +144,7 @@
         <tbody>
           @if (loadProgress(); as progress) {
             <tr class="bgs-row-progress">
-              <td colspan="8">
+              <td colspan="9">
                 <div class="bgs-progress">
                   <div class="bgs-progress-label">
                     Loading full dataset to sort… {{ progress.loaded }} / {{ progress.total }} pages
@@ -163,6 +164,7 @@
                 <td><span class="skeleton skeleton-line skeleton-w80"></span></td>
                 <td><span class="skeleton skeleton-line skeleton-w40"></span></td>
                 <td><span class="skeleton" style="display: block; width: 80%; height: 28px;"></span></td>
+                <td><span class="skeleton skeleton-line skeleton-w40"></span></td>
                 <td><span class="skeleton skeleton-line skeleton-w60"></span></td>
                 <td><span class="skeleton skeleton-line skeleton-w40"></span></td>
                 <td><span class="skeleton skeleton-line skeleton-w40"></span></td>
@@ -199,6 +201,25 @@
                       }
                     </div>
                   } @else {
+                    <span>—</span>
+                  }
+                </td>
+                <td class="bgs-col-state">
+                  @if (row.warState) {
+                    <span
+                      class="bgs-state-icon"
+                      [class.bgs-state-icon--pending]="row.warState === 'pending'"
+                      [title]="(row.warState === 'pending' ? 'War pending:\n' : 'At war:\n') + row.warDetails"
+                    >🔫</span>
+                  }
+                  @if (row.electionState) {
+                    <span
+                      class="bgs-state-icon"
+                      [class.bgs-state-icon--pending]="row.electionState === 'pending'"
+                      [title]="(row.electionState === 'pending' ? 'Election pending:\n' : 'Election:\n') + row.electionDetails"
+                    >🗳️</span>
+                  }
+                  @if (!row.warState && !row.electionState) {
                     <span>—</span>
                   }
                 </td>

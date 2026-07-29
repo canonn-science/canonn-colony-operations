@@ -36,6 +36,11 @@ const ARCHITECTS_CACHE_DURATION_MS = 2 * 60 * 60 * 1000;
 
 export const CANONN_FACTION = 'Canonn';
 export const CDSR_FACTION = 'Canonn Deep Space Research';
+const CANONN_FACTION_NAMES: ReadonlySet<string> = new Set([CANONN_FACTION, CDSR_FACTION]);
+
+/** BGS state names that count as "at war" for the State column's gun icon. */
+const WAR_STATES: ReadonlySet<string> = new Set(['War', 'Civil War']);
+const ELECTION_STATE = 'Election';
 
 /**
  * Error thrown by {@link CanonnBgsService}'s HTTP helpers for non-2xx responses.
@@ -55,6 +60,11 @@ function delay(ms: number): Promise<void> {
 interface MinorFactionPresence {
   name: string;
   influence: number;
+  /** Current state(s), e.g. "Boom", "War"; falls back to `state` when this is absent. */
+  active_states?: string[];
+  /** Upcoming state(s) not yet in effect, e.g. a war or election about to start. */
+  pending_states?: string[];
+  state?: string;
 }
 
 interface BgsSystemRecord {
@@ -101,6 +111,9 @@ export interface FactionInfluence {
   influencePercent: number;
 }
 
+/** Whether a war/election affecting Canonn or CDSR is already happening or just upcoming. */
+export type FactionStateStatus = 'active' | 'pending' | null;
+
 /** One row of the rendered table. */
 export interface BgsRow {
   systemName: string;
@@ -113,6 +126,14 @@ export interface BgsRow {
   preferredFaction: string | null;
   /** Every minor faction present in the system, sorted by influence descending (highest first). */
   factions: FactionInfluence[];
+  /** Whether Canonn or CDSR is (or is about to be) at war here — drives the State column's gun icon. */
+  warState: FactionStateStatus;
+  /** Tooltip text for the war icon (one line per contributing faction), or null if warState is null. */
+  warDetails: string | null;
+  /** Whether Canonn or CDSR is (or is about to be) in an election here — drives the ballot-box icon. */
+  electionState: FactionStateStatus;
+  /** Tooltip text for the election icon, or null if electionState is null. */
+  electionDetails: string | null;
   /** Galactic coordinates (light-years), used to compute the Distance column. */
   x: number;
   y: number;
@@ -172,6 +193,45 @@ function parseArchitectsTsv(text: string): Map<string, ArchitectInfo> {
     });
   }
   return map;
+}
+
+/**
+ * Checks Canonn's and CDSR's presences for a matching state (war or election), active or
+ * pending. Active wins over pending if a system somehow has both (e.g. one of the two
+ * factions is already at war while the other has it merely pending). Details list every
+ * contributing faction/state pair, for the icon's tooltip.
+ */
+function summarizeFactionState(
+  presences: readonly MinorFactionPresence[],
+  matchesState: (state: string) => boolean,
+): { status: FactionStateStatus; details: string | null } {
+  const active: string[] = [];
+  const pending: string[] = [];
+
+  for (const presence of presences) {
+    if (!CANONN_FACTION_NAMES.has(presence.name)) {
+      continue;
+    }
+    const activeStates = presence.active_states ?? (presence.state ? [presence.state] : []);
+    for (const state of activeStates) {
+      if (matchesState(state)) {
+        active.push(`${presence.name}: ${state}`);
+      }
+    }
+    for (const state of presence.pending_states ?? []) {
+      if (matchesState(state)) {
+        pending.push(`${presence.name}: ${state} (pending)`);
+      }
+    }
+  }
+
+  if (active.length > 0) {
+    return { status: 'active', details: active.join('\n') };
+  }
+  if (pending.length > 0) {
+    return { status: 'pending', details: pending.join('\n') };
+  }
+  return { status: null, details: null };
 }
 
 /**
@@ -271,6 +331,8 @@ export class CanonnBgsService {
     // The architects list only covers systems founded via the colonisation initiative;
     // a system that was never (or isn't yet being) colonised can't have one.
     const isColony = record.is_colonised || record.is_being_colonised;
+    const war = summarizeFactionState(presences, state => WAR_STATES.has(state));
+    const election = summarizeFactionState(presences, state => state === ELECTION_STATE);
     return {
       systemName: record.name,
       controllingFaction: record.controlling_minor_faction ?? null,
@@ -283,6 +345,10 @@ export class CanonnBgsService {
       factions: [...presences]
         .sort((a, b) => b.influence - a.influence)
         .map(p => ({ name: p.name, influencePercent: p.influence * 100 })),
+      warState: war.status,
+      warDetails: war.details,
+      electionState: election.status,
+      electionDetails: election.details,
       x: record.x,
       y: record.y,
       z: record.z,
