@@ -337,9 +337,11 @@ export class CanonnBgsService {
     const info = architects.get(record.name);
     const canonnInfluence = this.influencePercent(presences, CANONN_FACTION);
     const cdsrInfluence = this.influencePercent(presences, CDSR_FACTION);
-    // The architects list only covers systems founded via the colonisation initiative;
-    // a system that was never (or isn't yet being) colonised can't have one.
-    const isColony = record.is_colonised || record.is_being_colonised;
+    // The architects list only covers systems founded via the colonisation initiative, but
+    // a real registered architect is stronger evidence than the (sometimes stale, see
+    // is_colonised/is_being_colonised data-freshness) colony flags — an actual assignment
+    // always overrides "Not a colony".
+    const isColony = record.is_colonised || record.is_being_colonised || Boolean(info?.architect);
     const war = summarizeFactionState(presences, state => WAR_STATES.has(state));
     const election = summarizeFactionState(presences, state => state === ELECTION_STATE);
     return {
