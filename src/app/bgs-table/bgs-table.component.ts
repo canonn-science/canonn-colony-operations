@@ -7,7 +7,7 @@ import { MatDialog } from '@angular/material/dialog';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { FaIconComponent } from '@fortawesome/angular-fontawesome';
-import { faChevronLeft, faChevronRight, faMagnifyingGlass } from '@fortawesome/free-solid-svg-icons';
+import { faCheck, faChevronLeft, faChevronRight, faCopy, faMagnifyingGlass } from '@fortawesome/free-solid-svg-icons';
 import {
   BGS_PAGE_SIZE,
   BgsRow,
@@ -110,6 +110,8 @@ export class BgsTableComponent implements OnDestroy {
   protected readonly faChevronLeft = faChevronLeft;
   protected readonly faChevronRight = faChevronRight;
   protected readonly faMagnifyingGlass = faMagnifyingGlass;
+  protected readonly faCopy = faCopy;
+  protected readonly faCheck = faCheck;
   /** Both Canonn-affiliated factions — their bars are highlighted orange in the Factions chart. */
   protected readonly canonnFactionNames: ReadonlySet<string> = new Set([CANONN_FACTION, CDSR_FACTION]);
   protected readonly encodeURIComponent = encodeURIComponent;
@@ -118,6 +120,9 @@ export class BgsTableComponent implements OnDestroy {
 
   protected readonly pageIndex = signal(0);
   protected readonly loading = signal(true);
+  /** The system name last copied to the clipboard, shown as a brief checkmark on its row. */
+  protected readonly copiedSystem = signal<string | null>(null);
+  private copiedResetHandle: ReturnType<typeof setTimeout> | undefined;
   protected readonly errorMessage = signal<string | null>(null);
   /** Set while fetching every page for a full-dataset sort; null the rest of the time. */
   protected readonly loadProgress = signal<{ loaded: number; total: number } | null>(null);
@@ -248,6 +253,19 @@ export class BgsTableComponent implements OnDestroy {
     if (this.suggestionDebounceTimer !== null) {
       clearTimeout(this.suggestionDebounceTimer);
     }
+    clearTimeout(this.copiedResetHandle);
+  }
+
+  /** Copies a system name to the clipboard and shows a brief checkmark in its place. */
+  protected async copySystemName(systemName: string): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(systemName);
+    } catch {
+      return;
+    }
+    this.copiedSystem.set(systemName);
+    clearTimeout(this.copiedResetHandle);
+    this.copiedResetHandle = setTimeout(() => this.copiedSystem.set(null), 1500);
   }
 
   protected previousPage(): void {

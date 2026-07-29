@@ -175,7 +175,16 @@
           } @else {
             @for (row of visibleRows(); track row.systemName) {
               <tr>
-                <td>
+                <td class="bgs-col-system">
+                  <button
+                    type="button"
+                    class="bgs-copy-button"
+                    [title]="'Copy ' + row.systemName"
+                    [attr.aria-label]="'Copy ' + row.systemName"
+                    (click)="copySystemName(row.systemName)"
+                  >
+                    <fa-icon [icon]="copiedSystem() === row.systemName ? faCheck : faCopy"></fa-icon>
+                  </button>
                   <a
                     [href]="'https://inara.cz/elite/starsystem/?search=' + encodeURIComponent(row.systemName)"
                     target="_blank"

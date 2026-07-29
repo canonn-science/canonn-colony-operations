@@ -242,6 +242,26 @@
   transition: width 0.15s ease;
 }
 
+.bgs-col-system {
+  white-space: nowrap;
+}
+
+.bgs-copy-button {
+  padding: 0;
+  margin-right: 6px;
+  border: none;
+  background: none;
+  color: var(--color-text-2);
+  cursor: pointer;
+  vertical-align: middle;
+  line-height: 1;
+
+  &:hover,
+  &:focus-visible {
+    color: var(--color-link-hover);
+  }
+}
+
 .bgs-system-link {
   color: var(--color-link);
 }
