@@ -81,8 +81,6 @@ interface BgsSystemRecord {
   name: string;
   controlling_minor_faction: string | null;
   minor_faction_presences?: MinorFactionPresence[];
-  is_colonised: boolean;
-  is_being_colonised: boolean;
   x: number;
   y: number;
   z: number;
@@ -413,11 +411,6 @@ export class CanonnBgsService {
     const info = architects.get(record.name);
     const canonnInfluence = this.influencePercent(presences, CANONN_FACTION);
     const cdsrInfluence = this.influencePercent(presences, CDSR_FACTION);
-    // The architects list only covers systems founded via the colonisation initiative, but
-    // a real registered architect is stronger evidence than the (sometimes stale, see
-    // is_colonised/is_being_colonised data-freshness) colony flags — an actual assignment
-    // always overrides "Not a colony".
-    const isColony = record.is_colonised || record.is_being_colonised || Boolean(info?.architect);
     const war = summarizeFactionState(presences, state => WAR_STATES.has(state));
     const election = summarizeFactionState(presences, state => state === ELECTION_STATE);
     return {
@@ -425,10 +418,10 @@ export class CanonnBgsService {
       controllingFaction: record.controlling_minor_faction ?? null,
       canonnInfluence,
       cdsrInfluence,
-      architect: isColony ? (info?.architect || null) : 'Not a colony',
-      preferredFaction: isColony
-        ? (info?.preferredFaction || null)
-        : this.dominantCanonnFaction(canonnInfluence, cdsrInfluence),
+      // Spansh's colonisation flags are unreliable, so any system without a registered
+      // architect is assignable — never blocked behind a "Not a colony" indicator.
+      architect: info?.architect || null,
+      preferredFaction: info?.preferredFaction || null,
       factions: [...presences]
         .sort((a, b) => b.influence - a.influence)
         .map(p => ({ name: p.name, influencePercent: p.influence * 100 })),
@@ -445,17 +438,6 @@ export class CanonnBgsService {
   private influencePercent(presences: readonly MinorFactionPresence[], factionName: string): number | null {
     const presence = presences.find(p => p.name === factionName);
     return presence ? presence.influence * 100 : null;
-  }
-
-  /** For non-colony systems: whichever of Canonn/CDSR has more influence here, or null if neither is present. */
-  private dominantCanonnFaction(canonnInfluence: number | null, cdsrInfluence: number | null): string | null {
-    if (canonnInfluence === null && cdsrInfluence === null) {
-      return null;
-    }
-    if (cdsrInfluence === null || (canonnInfluence !== null && canonnInfluence >= cdsrInfluence)) {
-      return CANONN_FACTION;
-    }
-    return CDSR_FACTION;
   }
 
   private getToken(): Promise<string> {
