@@ -150,10 +150,20 @@
         <thead>
           <tr>
             <th>System Name</th>
-            <th
-              class="bgs-col-distance"
-              [title]="anchorName() ? 'distance from ' + anchorName() : 'distance'"
-            >Distance</th>
+            <th class="bgs-col-freshness">
+              <button
+                type="button"
+                class="bgs-sort-header"
+                (click)="sortByColumn('freshness')"
+                [disabled]="loading()"
+                title="Sort by data freshness"
+              >
+                Updated
+                @if (sortIndicator('freshness'); as indicator) {
+                  <span class="bgs-sort-indicator">{{ indicator }}</span>
+                }
+              </button>
+            </th>
             <th class="bgs-col-factions">
               <button
                 type="button"
@@ -293,9 +303,17 @@
                     [title]="'View ' + row.systemName + ' on Inara'"
                   >{{ row.systemName }}</a>
                 </td>
-                <td class="bgs-col-distance">
-                  @let distance = distanceTo(row);
-                  {{ distance !== null ? (distance | number: '1.2-2') + ' ly' : '—' }}
+                <td class="bgs-col-freshness">
+                  @let freshness = freshnessFor(row);
+                  <span
+                    class="bgs-freshness-pill"
+                    [class]="'bgs-freshness-pill--' + freshness.band"
+                    [title]="freshness.title"
+                    [attr.aria-label]="freshness.accessibleName"
+                  >
+                    <span class="bgs-freshness-dot" aria-hidden="true"></span>
+                    <span aria-hidden="true">{{ freshness.label }}</span>
+                  </span>
                 </td>
                 <td class="bgs-col-factions">
                   @if (row.factions.length > 0) {

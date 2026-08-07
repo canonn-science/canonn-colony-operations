@@ -27,6 +27,7 @@ import { CanonnLogoComponent } from '../canonn-logo/canonn-logo.component';
 import { ArchitectSubmission } from '../data/architect-form';
 import { architectNames, suggestArchitects } from '../data/architect-registry';
 import { distanceLy } from '../data/distance';
+import { FreshnessInfo, computeFreshness } from '../data/freshness';
 import { readYourName } from '../data/your-name';
 
 /**
@@ -38,7 +39,14 @@ import { readYourName } from '../data/your-name';
 type Mode = 'paged' | 'distance' | 'column';
 
 /** Columns the user can click a header to sort by. */
-type SortColumn = 'canonn' | 'cdsr' | 'controllingFaction' | 'architect' | 'preferredFaction' | 'factionCount';
+type SortColumn =
+  | 'canonn'
+  | 'cdsr'
+  | 'controllingFaction'
+  | 'architect'
+  | 'preferredFaction'
+  | 'factionCount'
+  | 'freshness';
 type SortDirection = 'asc' | 'desc';
 
 /** The Architect quick filter's modes: everyone, systems with no architect, or one named architect. */
@@ -78,6 +86,10 @@ function columnValue(row: BgsRow, column: SortColumn): string | number | null {
       return row.preferredFaction;
     case 'factionCount':
       return row.factions.length;
+    case 'freshness':
+      // Sort on the raw timestamp, not the rounded label, so two rows with the same
+      // displayed age (e.g. both "3w") don't tie arbitrarily.
+      return computeFreshness(row.updatedAt).sortValue;
   }
 }
 
@@ -130,6 +142,15 @@ export class BgsTableComponent implements OnDestroy {
   protected readonly encodeURIComponent = encodeURIComponent;
   /** Placeholder rows shown while data is still loading. */
   protected readonly skeletonRows = Array.from({ length: 12 }, (_, i) => i);
+
+  /**
+   * The clock the Freshness column's pills are computed against. Recomputed once a minute
+   * and on window focus — ample given the coarsest displayed unit is a day — so a long-lived
+   * tab doesn't show a pill that's silently gone stale itself.
+   */
+  private readonly now = signal(Date.now());
+  private nowTimerHandle: ReturnType<typeof setInterval> | undefined;
+  private readonly onWindowFocus = () => this.now.set(Date.now());
 
   protected readonly pageIndex = signal(0);
   protected readonly loading = signal(true);
@@ -337,6 +358,9 @@ export class BgsTableComponent implements OnDestroy {
     void this.loadArchitectFilterNames();
     this.architectFilterControl.setValue(readYourName());
 
+    this.nowTimerHandle = setInterval(() => this.now.set(Date.now()), 60_000);
+    window.addEventListener('focus', this.onWindowFocus);
+
     // Keep the search box showing whatever system the Distance column is currently
     // measured from — the first-loaded system, a search result, or the current top row
     // of a column sort — without fighting the user's own in-progress typing (this only
@@ -369,6 +393,8 @@ export class BgsTableComponent implements OnDestroy {
       clearTimeout(this.suggestionDebounceTimer);
     }
     clearTimeout(this.copiedResetHandle);
+    clearInterval(this.nowTimerHandle);
+    window.removeEventListener('focus', this.onWindowFocus);
   }
 
   /** Copies a system name to the clipboard and shows a brief checkmark in its place. */
@@ -490,9 +516,9 @@ export class BgsTableComponent implements OnDestroy {
     return this.sortDirection() === 'asc' ? '▲' : '▼';
   }
 
-  protected distanceTo(row: BgsRow): number | null {
-    const from = this.anchor();
-    return from ? distanceLy(from, row) : null;
+  /** The Freshness column's pill contents for a row, recomputed as {@link now} ticks forward. */
+  protected freshnessFor(row: BgsRow): FreshnessInfo {
+    return computeFreshness(row.updatedAt, this.now());
   }
 
   /** Accessible text equivalent of the Factions mini bar chart, for screen readers. */

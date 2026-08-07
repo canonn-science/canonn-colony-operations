@@ -31,6 +31,7 @@ const ROW: BgsRow = {
   x: 0,
   y: 0,
   z: 0,
+  updatedAt: null,
 };
 
 const REGISTRY: ArchitectRegistryRow[] = [

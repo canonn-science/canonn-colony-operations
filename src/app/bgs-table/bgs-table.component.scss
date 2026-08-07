@@ -192,8 +192,7 @@
   }
 }
 
-.bgs-col-influence,
-.bgs-col-distance {
+.bgs-col-influence {
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
@@ -340,6 +339,63 @@
 .bgs-row-skeleton td {
   padding-top: 12px;
   padding-bottom: 12px;
+}
+
+.bgs-col-freshness {
+  width: 90px;
+}
+
+// Fixed box for every band so rows never shift as data ages. Colours come from per-band
+// custom properties (below) so each band only sets three values, not a whole rule block.
+.bgs-freshness-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 46px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  cursor: default;
+  background-color: var(--freshness-bg);
+  color: var(--freshness-fg);
+}
+
+.bgs-freshness-dot {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  min-width: 5px;
+  min-height: 5px;
+  border-radius: 50%;
+  background-color: var(--freshness-dot);
+}
+
+// "Current" and "1 tick behind" carry the saturation — they're the rows worth acting on.
+.bgs-freshness-pill--current {
+  --freshness-bg: #eaf3de;
+  --freshness-fg: #27500a;
+  --freshness-dot: #639922;
+}
+.bgs-freshness-pill--oneTick {
+  --freshness-bg: #faeeda;
+  --freshness-fg: #633806;
+  --freshness-dot: #ba7517;
+}
+.bgs-freshness-pill--days {
+  --freshness-bg: #faece7;
+  --freshness-fg: #712b13;
+  --freshness-dot: #d85a30;
+}
+// "Weeks behind" is the table's resting state, not an exception, so it's muted/grey rather
+// than alarm red. "Unknown" (no timestamp) shares the rendering — a different fact from old
+// data, so it must not read as the worst band either.
+.bgs-freshness-pill--weeks,
+.bgs-freshness-pill--unknown {
+  --freshness-bg: #eceef0;
+  --freshness-fg: #5f6368;
+  --freshness-dot: #9aa0a6;
 }
 
 .bgs-pager {

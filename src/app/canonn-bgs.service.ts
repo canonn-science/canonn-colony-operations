@@ -89,6 +89,8 @@ interface BgsSystemRecord {
   x: number;
   y: number;
   z: number;
+  /** When this system's data was last updated, e.g. "2026-08-06 19:52:24+00". Not strict ISO 8601 — see {@link parseUpdatedAt}. */
+  updated_at?: string | null;
 }
 
 interface BgsPageResponse {
@@ -153,6 +155,8 @@ export interface BgsRow {
   x: number;
   y: number;
   z: number;
+  /** Raw `updated_at` from the API, as-is; the Freshness column derives its pill from this. */
+  updatedAt: string | null;
 }
 
 export interface BgsPage {
@@ -443,6 +447,7 @@ export class CanonnBgsService {
       x: record.x,
       y: record.y,
       z: record.z,
+      updatedAt: record.updated_at ?? null,
     };
   }
 
