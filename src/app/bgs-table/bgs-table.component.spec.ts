@@ -117,4 +117,21 @@ describe('BgsTableComponent paging against a large API page size (issue #7 follo
     expect(visibleRows().length).toBe(100);
     expect(visibleRows()[0].systemName).toBe('System 500');
   });
+
+  it('does not fetch the same server page twice when a page-size change races the initial load', async () => {
+    service.getPage.mockClear();
+
+    // The constructor's own initial buffering fires (and reaches the service) synchronously;
+    // racing a page-size change immediately after, before that first fetch resolves, must not
+    // capture the same server page index and issue a second request for it.
+    const freshFixture = TestBed.createComponent(BgsTableComponent);
+    const freshComponent = freshFixture.componentInstance;
+    freshComponent['setPageSize'](100);
+    await freshFixture.whenStable();
+
+    const pageZeroCalls = service.getPage.mock.calls.filter(([page]) => page === 0).length;
+    expect(pageZeroCalls).toBe(1);
+    expect(freshComponent['visibleRows']().length).toBe(100);
+    expect(freshComponent['visibleRows']()[0].systemName).toBe('System 0');
+  });
 });

@@ -684,8 +684,30 @@ export class BgsTableComponent implements OnDestroy {
     }
   }
 
+  /**
+   * In-flight server-page fetch, so overlapping `ensureBuffered` callers — the initial load
+   * racing a quick page-size change, or a double-clicked Next — share one request instead of
+   * each capturing the same {@link nextServerPageIndex} and issuing a duplicate `getPage` call
+   * (which would also append that page's rows to {@link rows} twice).
+   */
+  private serverPageFetch: Promise<boolean> | null = null;
+
   /** Fetches and appends the next not-yet-buffered server page. Returns whether it succeeded. */
-  private async fetchNextServerPage(): Promise<boolean> {
+  private fetchNextServerPage(): Promise<boolean> {
+    if (this.serverPageFetch) {
+      return this.serverPageFetch;
+    }
+    const fetch = this.doFetchNextServerPage();
+    this.serverPageFetch = fetch;
+    void fetch.finally(() => {
+      if (this.serverPageFetch === fetch) {
+        this.serverPageFetch = null;
+      }
+    });
+    return fetch;
+  }
+
+  private async doFetchNextServerPage(): Promise<boolean> {
     this.loading.set(true);
     this.errorMessage.set(null);
     try {
