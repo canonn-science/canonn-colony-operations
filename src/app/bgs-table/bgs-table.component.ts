@@ -11,7 +11,6 @@ import { MatSelectModule } from '@angular/material/select';
 import { FaIconComponent } from '@fortawesome/angular-fontawesome';
 import { faCheck, faChevronLeft, faChevronRight, faCopy, faMagnifyingGlass } from '@fortawesome/free-solid-svg-icons';
 import {
-  BGS_PAGE_SIZE,
   BgsRow,
   CANONN_FACTION,
   CDSR_FACTION,
@@ -164,9 +163,16 @@ export class BgsTableComponent implements OnDestroy {
   protected readonly mode = signal<Mode>('paged');
 
   // --- paged mode state -----------------------------------------------------------------
+  /**
+   * Rows fetched so far, in server order — grows one server page (of whatever size the API
+   * hands back, see {@link CanonnBgsService.getPage}) at a time as the user pages past what's
+   * already buffered. The *displayed* page size ({@link pageSize}) is independent of the
+   * server's own page size, so a display page is just a client-side slice of this buffer.
+   */
   private readonly rows = signal<BgsRow[]>([]);
   private readonly totalCount = signal<number | null>(null);
-  private readonly totalPages = signal<number | null>(null);
+  /** How many server pages (via `bgsService.getPage`) are already folded into {@link rows}. */
+  private nextServerPageIndex = 0;
   /** The first system loaded on startup — the default Distance reference until the user searches one. */
   private readonly defaultAnchor = signal<BgsRow | null>(null);
 
@@ -193,7 +199,8 @@ export class BgsTableComponent implements OnDestroy {
 
   // --- quick filters ------------------------------------------------------------------------
   protected readonly pageSizeOptions = PAGE_SIZE_OPTIONS;
-  protected readonly pageSize = signal<number>(BGS_PAGE_SIZE);
+  /** Rows shown per display page until the user picks a different size — deliberately small so a big API page (issue #7) doesn't dump hundreds of rows onto the screen at once. */
+  protected readonly pageSize = signal<number>(PAGE_SIZE_OPTIONS[0]);
   protected readonly warElectionOnly = signal(false);
   protected readonly architectFilterMode = signal<ArchitectFilterMode>('all');
   private readonly architectFilterName = signal('');
@@ -230,17 +237,16 @@ export class BgsTableComponent implements OnDestroy {
   );
 
   /**
-   * Whether the table is paginating client-side over {@link fullDataset} rather than fetching
-   * server-paged results — required by a non-default page size or any quick filter (there's no
-   * server-side support for either), and by the existing 'distance'/'column' sort modes. Sticky:
-   * once the full dataset has been fetched there's no reason to go back to incremental paging.
+   * Whether the table is paginating client-side over {@link fullDataset} rather than buffering
+   * server pages on demand — required by any quick filter (there's no server-side support for
+   * one) and by the existing 'distance'/'column' sort modes, which both need every row to filter
+   * or sort correctly. A display page size smaller than a server page does *not* require this:
+   * {@link visibleRows} just slices {@link rows}, growing it a server page at a time as needed.
+   * Sticky: once the full dataset has been fetched there's no reason to go back to incremental
+   * buffering.
    */
   protected readonly usingFullDataset = computed(
-    () =>
-      this.mode() !== 'paged' ||
-      this.filtersActive() ||
-      this.pageSize() !== BGS_PAGE_SIZE ||
-      this.fullDataset() !== null,
+    () => this.mode() !== 'paged' || this.filtersActive() || this.fullDataset() !== null,
   );
 
   /** {@link fullDataset}, narrowed by the active quick filters. */
@@ -318,18 +324,15 @@ export class BgsTableComponent implements OnDestroy {
   });
   protected readonly anchorName = computed(() => this.anchor()?.systemName ?? null);
 
-  /** The rows for the currently-visible page, regardless of mode. */
+  /** The rows for the currently-visible page, regardless of mode — a client-side slice either way. */
   protected readonly visibleRows = computed<BgsRow[]>(() => {
-    if (this.usingFullDataset()) {
-      const sorted = this.sortedRows();
-      if (!sorted) {
-        return [];
-      }
-      const size = this.pageSize();
-      const start = this.pageIndex() * size;
-      return sorted.slice(start, start + size);
+    const source = this.usingFullDataset() ? this.sortedRows() : this.rows();
+    if (!source) {
+      return [];
     }
-    return this.rows();
+    const size = this.pageSize();
+    const start = this.pageIndex() * size;
+    return source.slice(start, start + size);
   });
 
   protected readonly displayTotalCount = computed(() => {
@@ -340,12 +343,8 @@ export class BgsTableComponent implements OnDestroy {
   });
 
   protected readonly displayTotalPages = computed(() => {
-    if (this.usingFullDataset()) {
-      const count = this.sortedRows()?.length;
-      const size = this.pageSize();
-      return count != null ? Math.max(1, Math.ceil(count / size)) : null;
-    }
-    return this.totalPages();
+    const count = this.displayTotalCount();
+    return count != null ? Math.max(1, Math.ceil(count / this.pageSize())) : null;
   });
 
   protected readonly hasNextPage = computed(() => {
@@ -354,7 +353,7 @@ export class BgsTableComponent implements OnDestroy {
   });
 
   constructor() {
-    void this.loadPage(0);
+    void this.ensureBuffered(this.pageSize());
     void this.loadArchitectFilterNames();
     this.architectFilterControl.setValue(readYourName());
 
@@ -379,8 +378,8 @@ export class BgsTableComponent implements OnDestroy {
       .pipe(takeUntilDestroyed())
       .subscribe(value => this.factionFilterQuery.set(value));
 
-    // A quick filter or a non-default page size needs the full dataset — fetch it the moment
-    // one becomes active (sortByColumn/selectAnchorPoint already do the same for sort modes).
+    // A quick filter needs the full dataset — fetch it the moment one becomes active
+    // (sortByColumn/selectAnchorPoint already do the same for sort modes).
     effect(() => {
       if (this.usingFullDataset()) {
         void this.ensureFullDataset();
@@ -413,21 +412,19 @@ export class BgsTableComponent implements OnDestroy {
     if (this.pageIndex() === 0) {
       return;
     }
-    if (this.usingFullDataset()) {
-      this.pageIndex.update(p => p - 1);
-    } else {
-      void this.loadPage(this.pageIndex() - 1);
-    }
+    // Earlier pages are always already buffered — no fetch needed either way.
+    this.pageIndex.update(p => p - 1);
   }
 
   protected nextPage(): void {
     if (!this.hasNextPage()) {
       return;
     }
+    const newIndex = this.pageIndex() + 1;
     if (this.usingFullDataset()) {
-      this.pageIndex.update(p => p + 1);
+      this.pageIndex.set(newIndex);
     } else {
-      void this.loadPage(this.pageIndex() + 1);
+      void this.advanceBufferedPage(newIndex);
     }
   }
 
@@ -435,13 +432,22 @@ export class BgsTableComponent implements OnDestroy {
     if (this.usingFullDataset()) {
       void this.ensureFullDataset();
     } else {
-      void this.loadPage(this.pageIndex());
+      void this.ensureBuffered((this.pageIndex() + 1) * this.pageSize());
     }
+  }
+
+  /** Buffers whatever's needed for display page `newIndex`, then shows it. */
+  private async advanceBufferedPage(newIndex: number): Promise<void> {
+    await this.ensureBuffered((newIndex + 1) * this.pageSize());
+    this.pageIndex.set(newIndex);
   }
 
   protected setPageSize(size: number): void {
     this.pageSize.set(size);
     this.pageIndex.set(0);
+    if (!this.usingFullDataset()) {
+      void this.ensureBuffered(size);
+    }
   }
 
   protected toggleWarElection(): void {
@@ -641,30 +647,65 @@ export class BgsTableComponent implements OnDestroy {
     void this.ensureFullDataset();
   }
 
-  private async loadPage(page: number): Promise<void> {
+  /**
+   * Buffers server pages (appending to {@link rows}) until at least `minRows` are available, or
+   * the server has no more to give — so a display page size smaller than the server's own page
+   * size never has to fetch more than what's actually needed to show it (issue #7 follow-up:
+   * the server's page size grew to 500, but a 10-row display page shouldn't pull all of that
+   * upfront, let alone every subsequent server page the way a full-dataset fetch would).
+   */
+  private async ensureBuffered(minRows: number): Promise<void> {
+    while (this.rows().length < minRows) {
+      const total = this.totalCount();
+      if (total !== null && this.rows().length >= total) {
+        return; // that's everything the server has.
+      }
+      if (!(await this.fetchNextServerPage())) {
+        return; // fetch failed; errorMessage is already set for the user to retry.
+      }
+    }
+    this.prefetchIfNearBufferEnd(minRows);
+  }
+
+  /**
+   * Kicks off a background fetch of the next server page once the caller's just-satisfied
+   * `minRows` is within one display page of the buffer's actual end — so paging forward stays
+   * instant right as the buffer runs low, without pulling in a server page's worth of rows (up
+   * to hundreds, per issue #7) far ahead of when they're actually needed.
+   */
+  private prefetchIfNearBufferEnd(minRows: number): void {
+    const total = this.totalCount();
+    const buffered = this.rows().length;
+    if (total !== null && buffered >= total) {
+      return; // nothing left to prefetch.
+    }
+    if (buffered - minRows < this.pageSize()) {
+      this.bgsService.prefetchPage(this.nextServerPageIndex);
+    }
+  }
+
+  /** Fetches and appends the next not-yet-buffered server page. Returns whether it succeeded. */
+  private async fetchNextServerPage(): Promise<boolean> {
     this.loading.set(true);
     this.errorMessage.set(null);
     try {
+      const page = this.nextServerPageIndex;
       const result = await this.bgsService.getPage(page);
-      this.pageIndex.set(result.page);
-      this.rows.set(result.rows);
+      this.nextServerPageIndex = page + 1;
+      this.rows.update(existing => [...existing, ...result.rows]);
       this.totalCount.set(result.totalCount);
-      this.totalPages.set(result.totalPages);
       this.loading.set(false);
 
       if (this.defaultAnchor() === null && result.rows.length > 0) {
         this.defaultAnchor.set(result.rows[0]);
       }
-
-      // Pre-fetch the next page in the background so paging forward feels instant.
-      if (result.page + 1 < result.totalPages) {
-        this.bgsService.prefetchPage(result.page + 1);
-      }
+      return true;
     } catch (error) {
       this.loading.set(false);
       this.errorMessage.set(
         error instanceof Error ? `Failed to load BGS data: ${error.message}` : 'Failed to load BGS data.',
       );
+      return false;
     }
   }
 
