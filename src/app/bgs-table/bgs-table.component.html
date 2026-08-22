@@ -333,18 +333,34 @@
                 </td>
                 <td class="bgs-col-state">
                   @if (row.warState) {
-                    <span
-                      class="bgs-state-icon"
-                      [class.bgs-state-icon--pending]="row.warState === 'pending'"
-                      [title]="(row.warState === 'active' ? 'At war:\n' : '') + row.warDetails"
-                    >🔫</span>
+                    @if (row.warIsCanonnVsCanonn) {
+                      <span
+                        class="bgs-state-icon bgs-state-icon--self"
+                        [class.bgs-state-icon--pending]="row.warState === 'pending'"
+                        [title]="'Canonn vs Canonn:\n' + row.warDetails"
+                      ><img src="assets/canonn.svg" alt="Canonn vs Canonn" class="bgs-state-icon-img" /></span>
+                    } @else {
+                      <span
+                        class="bgs-state-icon"
+                        [class.bgs-state-icon--pending]="row.warState === 'pending'"
+                        [title]="(row.warState === 'active' ? 'At war:\n' : '') + row.warDetails"
+                      >🔫</span>
+                    }
                   }
                   @if (row.electionState) {
-                    <span
-                      class="bgs-state-icon bgs-state-icon--election"
-                      [class.bgs-state-icon--pending]="row.electionState === 'pending'"
-                      [title]="(row.electionState === 'active' ? 'Election:\n' : '') + row.electionDetails"
-                    >🗳️</span>
+                    @if (row.electionIsCanonnVsCanonn) {
+                      <span
+                        class="bgs-state-icon bgs-state-icon--self"
+                        [class.bgs-state-icon--pending]="row.electionState === 'pending'"
+                        [title]="'Canonn vs Canonn:\n' + row.electionDetails"
+                      ><img src="assets/canonn.svg" alt="Canonn vs Canonn" class="bgs-state-icon-img" /></span>
+                    } @else {
+                      <span
+                        class="bgs-state-icon bgs-state-icon--election"
+                        [class.bgs-state-icon--pending]="row.electionState === 'pending'"
+                        [title]="(row.electionState === 'active' ? 'Election:\n' : '') + row.electionDetails"
+                      >🗳️</span>
+                    }
                   }
                   @if (!row.warState && !row.electionState) {
                     <span>—</span>

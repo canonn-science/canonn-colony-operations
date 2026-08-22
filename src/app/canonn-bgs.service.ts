@@ -165,10 +165,14 @@ export interface BgsRow {
   warState: FactionStateStatus;
   /** Tooltip text for the war icon (one line per contributing faction), or null if warState is null. */
   warDetails: string | null;
+  /** True when the war's two parties are Canonn and CDSR themselves — renders the Canonn icon instead of the gun. */
+  warIsCanonnVsCanonn: boolean;
   /** Whether Canonn or CDSR is (or is about to be) in an election here — drives the ballot-box icon. */
   electionState: FactionStateStatus;
   /** Tooltip text for the election icon, or null if electionState is null. */
   electionDetails: string | null;
+  /** True when the election's two parties are Canonn and CDSR themselves — renders the Canonn icon instead of the ballot box. */
+  electionIsCanonnVsCanonn: boolean;
   /** Galactic coordinates (light-years), used to compute the Distance column. */
   x: number;
   y: number;
@@ -278,14 +282,22 @@ function logConflictStateAnomaly(
  *  - R9: `recovering_states` never renders — active wins if a system somehow has both an
  *    active and a pending entry for the same conflict.
  * Details list every contributing faction/state pair, for the icon's tooltip.
+ *
+ * Also reports `isCanonnVsCanonn`: true when the only two factions sharing the state are
+ * Canonn and CDSR themselves. We only care about conflicts Canonn/CDSR are a party to (see
+ * the outer `CANONN_FACTION_NAMES` filter below); when the *other* party also turns out to
+ * be Canonn/CDSR, that's a distinct case worth flagging on its own icon rather than showing
+ * as an ordinary war/election against a third-party faction.
  */
 function summarizeFactionState(
   systemName: string,
   presences: readonly MinorFactionPresence[],
   conflictStates: ReadonlySet<string>,
-): { status: FactionStateStatus; details: string | null } {
+): { status: FactionStateStatus; details: string | null; isCanonnVsCanonn: boolean } {
   const active: string[] = [];
   const pending: string[] = [];
+  let activeIsCanonnVsCanonn = false;
+  let pendingIsCanonnVsCanonn = false;
 
   for (const presence of presences) {
     if (!CANONN_FACTION_NAMES.has(presence.name)) {
@@ -303,14 +315,25 @@ function summarizeFactionState(
       );
       if (corroborators.length >= 2) {
         active.push(`${presence.name}: ${rawState}`);
+        if (corroborators.length === 2 && corroborators.every(c => CANONN_FACTION_NAMES.has(c.name))) {
+          activeIsCanonnVsCanonn = true;
+        }
       } else {
         logConflictStateAnomaly(systemName, presence, `R3: no second faction corroborates active "${rawState}"`);
       }
     }
 
     for (const rawState of presence.pending_states ?? []) {
-      if (conflictStates.has(normalizeStateName(rawState))) {
-        pending.push(`${presence.name}: ${rawState} (pending)`);
+      const normalized = normalizeStateName(rawState);
+      if (!conflictStates.has(normalized)) {
+        continue;
+      }
+      pending.push(`${presence.name}: ${rawState} (pending)`);
+      const pendingCorroborators = presences.filter(other =>
+        (other.pending_states ?? []).some(s => normalizeStateName(s) === normalized),
+      );
+      if (pendingCorroborators.length === 2 && pendingCorroborators.every(c => CANONN_FACTION_NAMES.has(c.name))) {
+        pendingIsCanonnVsCanonn = true;
       }
     }
 
@@ -326,12 +349,12 @@ function summarizeFactionState(
   }
 
   if (active.length > 0) {
-    return { status: 'active', details: active.join('\n') };
+    return { status: 'active', details: active.join('\n'), isCanonnVsCanonn: activeIsCanonnVsCanonn };
   }
   if (pending.length > 0) {
-    return { status: 'pending', details: pending.join('\n') };
+    return { status: 'pending', details: pending.join('\n'), isCanonnVsCanonn: pendingIsCanonnVsCanonn };
   }
-  return { status: null, details: null };
+  return { status: null, details: null, isCanonnVsCanonn: false };
 }
 
 /**
@@ -504,8 +527,10 @@ export class CanonnBgsService {
         .map(p => ({ name: p.name, influencePercent: p.influence * 100 })),
       warState: war.status,
       warDetails: war.details,
+      warIsCanonnVsCanonn: war.isCanonnVsCanonn,
       electionState: election.status,
       electionDetails: election.details,
+      electionIsCanonnVsCanonn: election.isCanonnVsCanonn,
       x: record.x,
       y: record.y,
       z: record.z,
