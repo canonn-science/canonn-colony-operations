@@ -83,13 +83,28 @@ function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+/**
+ * A `pending_states` entry may be a bare state name, or (per issue #6, R10) an object
+ * carrying an optional `trend` alongside it — observed values are `0`, and render must not
+ * depend on it being present or non-zero, so it's read only to extract `state`.
+ */
+interface PendingStateEntry {
+  state: string;
+  trend?: number;
+}
+
+/** The state name out of a `pending_states` entry, whichever shape it came in as. */
+function pendingEntryStateName(entry: string | PendingStateEntry): string {
+  return typeof entry === 'string' ? entry : entry.state;
+}
+
 interface MinorFactionPresence {
   name: string;
   influence: number;
   /** Current state(s), e.g. "Boom", "War". Authoritative — see issue #6. */
   active_states?: string[];
   /** Upcoming state(s) not yet in effect, e.g. a war or election about to start. */
-  pending_states?: string[];
+  pending_states?: (string | PendingStateEntry)[];
   /** State(s) that just ended and are in a post-state cooldown, e.g. a war that just concluded. */
   recovering_states?: string[];
   /**
@@ -249,51 +264,127 @@ function parseArchitectsTsv(text: string): ArchitectRegistryRow[] {
 }
 
 /**
- * Logs a structured anomaly record (issue #6, R8) when the legacy `state` scalar names a
- * conflict that the modern `active_states`-derived render rejects — either because `state`
- * isn't corroborated by the faction's own `active_states` (R2), or because it is but no
- * second faction in the system shares it (R3). This is dev-only diagnostic signal for
- * whether Spansh's legacy field keeps drifting from the modern one; it never reaches render.
+ * Logs a structured anomaly record (issue #6, R8) for a faction whose legacy `state` or
+ * `active_states`/`pending_states` disagree with what the modern arrays can actually
+ * corroborate. This is a general "is Spansh's legacy field still drifting from the modern
+ * one" signal, independent of which faction it's about — it runs for every faction in the
+ * system (see {@link summarizeFactionState}), not just Canonn/CDSR, since the point is to
+ * catch upstream data-quality regressions generally, not only where we happen to render.
+ * `recovering_states` is included here (never in the render) so a resolved conflict's
+ * evidence isn't lost. `severity: 'info'` is used for R9's unpaired-pending case, which the
+ * issue calls out as lower-severity than an outright R2/R3 rejection — dev-only either way,
+ * this never reaches render. `snapshot_time` stands in for the issue's `timestamps.factions`
+ * (this API's per-record `updated_at` is the closest coherent equivalent we get); there's no
+ * `id64` in this API's system records at all, so it's omitted rather than fabricated.
  */
 function logConflictStateAnomaly(
   systemName: string,
+  snapshotTime: string | null,
   presence: MinorFactionPresence,
   reason: string,
+  severity: 'warning' | 'info' = 'warning',
 ): void {
-  logger.warn('BGS conflict-state anomaly', {
+  const record = {
     system: systemName,
+    snapshot_time: snapshotTime,
     faction: presence.name,
     state: presence.state,
     active_states: presence.active_states ?? [],
+    pending_states: (presence.pending_states ?? []).map(pendingEntryStateName),
+    recovering_states: presence.recovering_states ?? [],
     reason,
-  });
+  };
+  if (severity === 'info') {
+    logger.log('BGS conflict-state anomaly', record);
+  } else {
+    logger.warn('BGS conflict-state anomaly', record);
+  }
+}
+
+/** Every faction in the system whose own `active_states` includes `normalized`. */
+function activeCorroborators(presences: readonly MinorFactionPresence[], normalized: string): MinorFactionPresence[] {
+  return presences.filter(p => (p.active_states ?? []).some(s => normalizeStateName(s) === normalized));
+}
+
+/** Every faction in the system whose own `pending_states` includes `normalized`. */
+function pendingCorroborators(presences: readonly MinorFactionPresence[], normalized: string): MinorFactionPresence[] {
+  return presences.filter(p =>
+    (p.pending_states ?? []).some(entry => normalizeStateName(pendingEntryStateName(entry)) === normalized),
+  );
+}
+
+/** True when `corroborators` is exactly Canonn and CDSR — the "vs each other" case. */
+function isCanonnOnlyPair(corroborators: readonly MinorFactionPresence[]): boolean {
+  return corroborators.length === 2 && corroborators.every(c => CANONN_FACTION_NAMES.has(c.name));
 }
 
 /**
  * Checks Canonn's and CDSR's presences for a matching conflict state (war or election),
- * active or pending (about to start next tick). Implements issue #6's rules:
+ * active or pending (about to start next tick), and along the way runs the R8 anomaly
+ * diagnostics for every faction in the system. Implements issue #6's rules:
  *  - R1/R2: only `active_states`/`pending_states` drive the render. The legacy `state`
- *    scalar is read only to detect anomalies (R8, below) — it never decides active/pending
- *    status on its own.
+ *    scalar is read only to detect anomalies (R8) — it never decides active/pending status
+ *    on its own.
  *  - R3: an active conflict needs at least one other faction in the same system
  *    corroborating the same (normalised) state in its own `active_states` — a lone
  *    combatant is impossible and is suppressed (and logged as an anomaly).
  *  - R4: state names are compared after normalising (lowercase, non-alphanumerics stripped).
  *  - R9: `recovering_states` never renders — active wins if a system somehow has both an
- *    active and a pending entry for the same conflict.
+ *    active and a pending entry for the same conflict. Pending entries aren't subject to
+ *    R3's two-party requirement, but an unpaired one still gets a lower-severity anomaly.
+ *  - R10: a `pending_states` entry may be a bare string or `{state, trend}` — `trend` is
+ *    never read.
  * Details list every contributing faction/state pair, for the icon's tooltip.
  *
  * Also reports `isCanonnVsCanonn`: true when the only two factions sharing the state are
  * Canonn and CDSR themselves. We only care about conflicts Canonn/CDSR are a party to (see
- * the outer `CANONN_FACTION_NAMES` filter below); when the *other* party also turns out to
- * be Canonn/CDSR, that's a distinct case worth flagging on its own icon rather than showing
- * as an ordinary war/election against a third-party faction.
+ * the render loop's `CANONN_FACTION_NAMES` filter below); when the *other* party also turns
+ * out to be Canonn/CDSR, that's a distinct case worth flagging on its own icon rather than
+ * showing as an ordinary war/election against a third-party faction.
  */
 function summarizeFactionState(
   systemName: string,
+  snapshotTime: string | null,
   presences: readonly MinorFactionPresence[],
   conflictStates: ReadonlySet<string>,
 ): { status: FactionStateStatus; details: string | null; isCanonnVsCanonn: boolean } {
+  // R8 diagnostics: every faction, not just Canonn/CDSR.
+  for (const presence of presences) {
+    const rawActiveStates = presence.active_states ?? [];
+    for (const rawState of rawActiveStates) {
+      const normalized = normalizeStateName(rawState);
+      if (!conflictStates.has(normalized)) {
+        continue;
+      }
+      if (activeCorroborators(presences, normalized).length < 2) {
+        logConflictStateAnomaly(systemName, snapshotTime, presence, `R3: no second faction corroborates active "${rawState}"`);
+      }
+    }
+
+    for (const entry of presence.pending_states ?? []) {
+      const stateName = pendingEntryStateName(entry);
+      const normalized = normalizeStateName(stateName);
+      if (!conflictStates.has(normalized)) {
+        continue;
+      }
+      if (pendingCorroborators(presences, normalized).length < 2) {
+        logConflictStateAnomaly(systemName, snapshotTime, presence, `R9: unpaired pending "${stateName}"`, 'info');
+      }
+    }
+
+    // R1/R2 anomaly: the legacy `state` scalar names a conflict not corroborated by
+    // active_states. `recovering_states` doesn't get this same treatment since it's not a
+    // legacy field disagreeing with a modern one — R9 just never renders it (but is still
+    // included in the anomaly record above, as evidence).
+    if (presence.state && conflictStates.has(normalizeStateName(presence.state))) {
+      const corroborated = rawActiveStates.some(s => normalizeStateName(s) === normalizeStateName(presence.state!));
+      if (!corroborated) {
+        logConflictStateAnomaly(systemName, snapshotTime, presence, `R2: legacy state "${presence.state}" absent from active_states`);
+      }
+    }
+  }
+
+  // Render: Canonn/CDSR only — a war or election we're not a party to isn't shown.
   const active: string[] = [];
   const pending: string[] = [];
   let activeIsCanonnVsCanonn = false;
@@ -304,46 +395,29 @@ function summarizeFactionState(
       continue;
     }
 
-    const rawActiveStates = presence.active_states ?? [];
-    for (const rawState of rawActiveStates) {
+    for (const rawState of presence.active_states ?? []) {
       const normalized = normalizeStateName(rawState);
       if (!conflictStates.has(normalized)) {
         continue;
       }
-      const corroborators = presences.filter(other =>
-        (other.active_states ?? []).some(s => normalizeStateName(s) === normalized),
-      );
+      const corroborators = activeCorroborators(presences, normalized);
       if (corroborators.length >= 2) {
         active.push(`${presence.name}: ${rawState}`);
-        if (corroborators.length === 2 && corroborators.every(c => CANONN_FACTION_NAMES.has(c.name))) {
+        if (isCanonnOnlyPair(corroborators)) {
           activeIsCanonnVsCanonn = true;
         }
-      } else {
-        logConflictStateAnomaly(systemName, presence, `R3: no second faction corroborates active "${rawState}"`);
       }
     }
 
-    for (const rawState of presence.pending_states ?? []) {
-      const normalized = normalizeStateName(rawState);
+    for (const entry of presence.pending_states ?? []) {
+      const stateName = pendingEntryStateName(entry);
+      const normalized = normalizeStateName(stateName);
       if (!conflictStates.has(normalized)) {
         continue;
       }
-      pending.push(`${presence.name}: ${rawState} (pending)`);
-      const pendingCorroborators = presences.filter(other =>
-        (other.pending_states ?? []).some(s => normalizeStateName(s) === normalized),
-      );
-      if (pendingCorroborators.length === 2 && pendingCorroborators.every(c => CANONN_FACTION_NAMES.has(c.name))) {
+      pending.push(`${presence.name}: ${stateName} (pending)`);
+      if (isCanonnOnlyPair(pendingCorroborators(presences, normalized))) {
         pendingIsCanonnVsCanonn = true;
-      }
-    }
-
-    // R1/R2 anomaly: the legacy `state` scalar names a conflict not corroborated by
-    // active_states. `recovering_states` doesn't get this same treatment since it's not a
-    // legacy field disagreeing with a modern one — R9 just never renders it.
-    if (presence.state && conflictStates.has(normalizeStateName(presence.state))) {
-      const corroborated = rawActiveStates.some(s => normalizeStateName(s) === normalizeStateName(presence.state!));
-      if (!corroborated) {
-        logConflictStateAnomaly(systemName, presence, `R2: legacy state "${presence.state}" absent from active_states`);
       }
     }
   }
@@ -508,8 +582,9 @@ export class CanonnBgsService {
     const info = architects.get(record.name);
     const canonnInfluence = this.influencePercent(presences, CANONN_FACTION);
     const cdsrInfluence = this.influencePercent(presences, CDSR_FACTION);
-    const war = summarizeFactionState(record.name, presences, WAR_STATES);
-    const election = summarizeFactionState(record.name, presences, ELECTION_STATES);
+    const snapshotTime = record.updated_at ?? null;
+    const war = summarizeFactionState(record.name, snapshotTime, presences, WAR_STATES);
+    const election = summarizeFactionState(record.name, snapshotTime, presences, ELECTION_STATES);
     return {
       systemName: record.name,
       controllingFaction: record.controlling_minor_faction ?? null,
