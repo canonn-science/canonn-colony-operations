@@ -625,13 +625,14 @@ export class CanonnBgsService {
    * comes out to 1 either way — so it's the one response trusted to reveal the true page size,
    * and that's reused for every later page. A later page's own `results.length` is deliberately
    * *not* used for this, since a later page fetched on its own (e.g. a prefetch) may be the
-   * short last page and would otherwise be mistaken for the true page size.
+   * short last page and would otherwise be mistaken for the true page size — if page 0 hasn't
+   * been observed yet, this sticks to the default instead.
    */
   private resolvePageSize(page: number, resultsLength: number): number {
     if (page === 0 && resultsLength > 0) {
       this.discoveredPageSize = resultsLength;
     }
-    return this.discoveredPageSize ?? (resultsLength > 0 ? resultsLength : BGS_PAGE_SIZE);
+    return this.discoveredPageSize ?? BGS_PAGE_SIZE;
   }
 
   private toRow(record: BgsSystemRecord, architects: ReadonlyMap<string, ArchitectInfo>): BgsRow {

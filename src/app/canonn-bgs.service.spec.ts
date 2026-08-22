@@ -4,7 +4,13 @@ import { BGS_PAGE_SIZE, CanonnBgsService } from './canonn-bgs.service';
 const BGS_ENDPOINT = 'https://us-central1-canonn-api-236217.cloudfunctions.net/query/canonnbgs';
 const ARCHITECTS_ENDPOINT = `${BGS_ENDPOINT}/architects`;
 const TOKEN = 'test-token';
-const BGS_PAGE_URL = new RegExp(`^${BGS_ENDPOINT}/${TOKEN}/(\\d+)$`);
+
+/** Escapes regex metacharacters so a URL can be matched literally. */
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+const BGS_PAGE_URL = new RegExp(`^${escapeRegExp(BGS_ENDPOINT)}/${TOKEN}/(\\d+)$`);
 
 /**
  * Stands in for the real Cloud Function, but paging 520 systems 500-at-a-time instead of the
