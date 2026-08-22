@@ -267,6 +267,17 @@
   opacity: 0.75;
 }
 
+// Canonn-vs-Canonn icon: the logo mark itself, in place of the gun/ballot emoji. It's an
+// <img> rather than a glyph, so it needs explicit sizing to match the emoji icons' footprint;
+// .bgs-state-icon--pending's filter still applies (CSS filter on the parent span composites
+// its children too), so the grey/active distinction keeps working without extra rules here.
+.bgs-state-icon-img {
+  display: inline-block;
+  width: 1.15rem;
+  height: 1.15rem;
+  vertical-align: middle;
+}
+
 .bgs-row-progress td {
   padding: 24px 16px;
   white-space: normal;
