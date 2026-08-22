@@ -343,7 +343,7 @@
                       <span
                         class="bgs-state-icon"
                         [class.bgs-state-icon--pending]="row.warState === 'pending'"
-                        [title]="(row.warState === 'active' ? 'At war:\n' : '') + row.warDetails"
+                        [title]="row.warDetails"
                       >🔫</span>
                     }
                   }
@@ -358,7 +358,7 @@
                       <span
                         class="bgs-state-icon bgs-state-icon--election"
                         [class.bgs-state-icon--pending]="row.electionState === 'pending'"
-                        [title]="(row.electionState === 'active' ? 'Election:\n' : '') + row.electionDetails"
+                        [title]="row.electionDetails"
                       >🗳️</span>
                     }
                   }

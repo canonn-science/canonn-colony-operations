@@ -319,6 +319,22 @@ function isCanonnOnlyPair(corroborators: readonly MinorFactionPresence[]): boole
 }
 
 /**
+ * "Canonn vs Varati Ring" — every faction sharing the conflict state, Canonn/CDSR first,
+ * so the tooltip names who's actually fighting rather than just which of our own factions
+ * is involved. A lone corroborator (an unpaired pending state) renders as just its own name.
+ */
+function describeConflict(corroborators: readonly MinorFactionPresence[]): string {
+  return [...corroborators]
+    .sort((a, b) => {
+      const aIsCanonn = CANONN_FACTION_NAMES.has(a.name) ? 0 : 1;
+      const bIsCanonn = CANONN_FACTION_NAMES.has(b.name) ? 0 : 1;
+      return aIsCanonn - bIsCanonn || a.name.localeCompare(b.name);
+    })
+    .map(c => c.name)
+    .join(' vs ');
+}
+
+/**
  * Checks Canonn's and CDSR's presences for a matching conflict state (war or election),
  * active or pending (about to start next tick), and along the way runs the R8 anomaly
  * diagnostics for every faction in the system. Implements issue #6's rules:
@@ -334,7 +350,9 @@ function isCanonnOnlyPair(corroborators: readonly MinorFactionPresence[]): boole
  *    R3's two-party requirement, but an unpaired one still gets a lower-severity anomaly.
  *  - R10: a `pending_states` entry may be a bare string or `{state, trend}` — `trend` is
  *    never read.
- * Details list every contributing faction/state pair, for the icon's tooltip.
+ * Details are one line per distinct conflict, e.g. `"War: Canonn vs Varati Ring"` — naming
+ * who's actually fighting rather than just which of our own factions is involved — for the
+ * icon's tooltip.
  *
  * Also reports `isCanonnVsCanonn`: true when the only two factions sharing the state are
  * Canonn and CDSR themselves. We only care about conflicts Canonn/CDSR are a party to (see
@@ -384,9 +402,13 @@ function summarizeFactionState(
     }
   }
 
-  // Render: Canonn/CDSR only — a war or election we're not a party to isn't shown.
+  // Render: Canonn/CDSR only — a war or election we're not a party to isn't shown. Details
+  // are keyed by (state, corroborator set) and deduped, since Canonn and CDSR being on the
+  // same side of the same conflict would otherwise produce the same "X vs Y" line twice.
   const active: string[] = [];
   const pending: string[] = [];
+  const seenActive = new Set<string>();
+  const seenPending = new Set<string>();
   let activeIsCanonnVsCanonn = false;
   let pendingIsCanonnVsCanonn = false;
 
@@ -401,11 +423,16 @@ function summarizeFactionState(
         continue;
       }
       const corroborators = activeCorroborators(presences, normalized);
-      if (corroborators.length >= 2) {
-        active.push(`${presence.name}: ${rawState}`);
-        if (isCanonnOnlyPair(corroborators)) {
-          activeIsCanonnVsCanonn = true;
-        }
+      if (corroborators.length < 2) {
+        continue;
+      }
+      const key = `${normalized}|${corroborators.map(c => c.name).sort().join(',')}`;
+      if (!seenActive.has(key)) {
+        seenActive.add(key);
+        active.push(`${rawState}: ${describeConflict(corroborators)}`);
+      }
+      if (isCanonnOnlyPair(corroborators)) {
+        activeIsCanonnVsCanonn = true;
       }
     }
 
@@ -415,8 +442,13 @@ function summarizeFactionState(
       if (!conflictStates.has(normalized)) {
         continue;
       }
-      pending.push(`${presence.name}: ${stateName} (pending)`);
-      if (isCanonnOnlyPair(pendingCorroborators(presences, normalized))) {
+      const corroborators = pendingCorroborators(presences, normalized);
+      const key = `${normalized}|${corroborators.map(c => c.name).sort().join(',')}`;
+      if (!seenPending.has(key)) {
+        seenPending.add(key);
+        pending.push(`${stateName}: ${describeConflict(corroborators)} (pending)`);
+      }
+      if (isCanonnOnlyPair(corroborators)) {
         pendingIsCanonnVsCanonn = true;
       }
     }
