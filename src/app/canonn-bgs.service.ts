@@ -39,7 +39,12 @@ const HTTP_RETRY_COUNT = 2;
 /** Timeout for a form submission (ms). Not retried — see {@link CanonnBgsService.submitAssignment}. */
 const FORM_SUBMIT_TIMEOUT_MS = 15000;
 
-/** Records per BGS page, per the API contract. */
+/**
+ * Fallback page size, used only until the API's actual page size is known (see
+ * {@link CanonnBgsService.resolvePageSize}); also the client's default page-size selection.
+ * Not authoritative — the Cloud Function's real per-page record count isn't a fixed contract
+ * (issue #7) and is inferred per-session from page 0's response instead.
+ */
 export const BGS_PAGE_SIZE = 50;
 
 /** localStorage key the architect registry is persisted under. */
@@ -478,6 +483,8 @@ function summarizeFactionState(
 export class CanonnBgsService {
   private tokenPromise?: Promise<string>;
   private readonly pagePromises = new Map<number, Promise<BgsPage>>();
+  /** The API's actual per-page record count, learned from page 0's response — see {@link resolvePageSize}. */
+  private discoveredPageSize: number | null = null;
   private registryPromise?: Promise<ArchitectRegistryRow[]>;
   /** The resolved registry, once loaded — what {@link recordAssignment} appends to. */
   private registryRows: ArchitectRegistryRow[] | null = null;
@@ -601,12 +608,31 @@ export class CanonnBgsService {
   private async fetchPage(page: number): Promise<BgsPage> {
     const [token, architects] = await Promise.all([this.getToken(), this.getArchitectInfo()]);
     const response = await this.resilientGet<BgsPageResponse>(`${BGS_ENDPOINT}/${token}/${page}`);
+    const pageSize = this.resolvePageSize(page, response.results.length);
     return {
       page,
       rows: response.results.map(record => this.toRow(record, architects)),
       totalCount: response.count,
-      totalPages: Math.max(1, Math.ceil(response.count / BGS_PAGE_SIZE)),
+      totalPages: Math.max(1, Math.ceil(response.count / pageSize)),
     };
+  }
+
+  /**
+   * The API's per-page record count isn't a fixed contract (issue #7: it changed from 50 to
+   * 500 without notice, and {@link BGS_PAGE_SIZE} being hardcoded against the old value made
+   * every page past the new, much-shorter last page 404). Page 0 is guaranteed full unless the
+   * whole dataset fits on one page — in which case the size doesn't matter, since `totalPages`
+   * comes out to 1 either way — so it's the one response trusted to reveal the true page size,
+   * and that's reused for every later page. A later page's own `results.length` is deliberately
+   * *not* used for this, since a later page fetched on its own (e.g. a prefetch) may be the
+   * short last page and would otherwise be mistaken for the true page size — if page 0 hasn't
+   * been observed yet, this sticks to the default instead.
+   */
+  private resolvePageSize(page: number, resultsLength: number): number {
+    if (page === 0 && resultsLength > 0) {
+      this.discoveredPageSize = resultsLength;
+    }
+    return this.discoveredPageSize ?? BGS_PAGE_SIZE;
   }
 
   private toRow(record: BgsSystemRecord, architects: ReadonlyMap<string, ArchitectInfo>): BgsRow {
