@@ -51,9 +51,22 @@ export const CANONN_FACTION = 'Canonn';
 export const CDSR_FACTION = 'Canonn Deep Space Research';
 const CANONN_FACTION_NAMES: ReadonlySet<string> = new Set([CANONN_FACTION, CDSR_FACTION]);
 
-/** BGS state names that count as "at war" for the State column's gun icon. */
-const WAR_STATES: ReadonlySet<string> = new Set(['War', 'Civil War']);
-const ELECTION_STATE = 'Election';
+/**
+ * BGS state names that count as "at war" / "in an election" for the State column's icons,
+ * pre-normalised per {@link normalizeStateName} (issue #6, R4) so raw entries can be compared
+ * against these sets after normalising them the same way.
+ */
+const WAR_STATES: ReadonlySet<string> = new Set(['war', 'civilwar']);
+const ELECTION_STATES: ReadonlySet<string> = new Set(['election']);
+
+/**
+ * Normalises a BGS state name for comparison (issue #6, R4): Spansh humanises state names
+ * inconsistently across sources (`"CivilWar"` vs `"Civil War"`), so raw strings are never
+ * compared directly.
+ */
+function normalizeStateName(state: string): string {
+  return state.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
 
 /**
  * Error thrown by {@link CanonnBgsService}'s HTTP helpers for non-2xx responses.
@@ -73,12 +86,17 @@ function delay(ms: number): Promise<void> {
 interface MinorFactionPresence {
   name: string;
   influence: number;
-  /** Current state(s), e.g. "Boom", "War"; falls back to `state` when this is absent. */
+  /** Current state(s), e.g. "Boom", "War". Authoritative — see issue #6. */
   active_states?: string[];
   /** Upcoming state(s) not yet in effect, e.g. a war or election about to start. */
   pending_states?: string[];
   /** State(s) that just ended and are in a post-state cooldown, e.g. a war that just concluded. */
   recovering_states?: string[];
+  /**
+   * Legacy single-state scalar (a passthrough of the game journal's FactionState). Lags a
+   * tick or can report a conflict that's already resolved — read only for anomaly detection
+   * against `active_states`, never to derive a user-visible conflict indicator (issue #6, R1).
+   */
   state?: string;
 }
 
@@ -227,38 +245,82 @@ function parseArchitectsTsv(text: string): ArchitectRegistryRow[] {
 }
 
 /**
- * Checks Canonn's and CDSR's presences for a matching state (war or election), active,
- * pending (about to start next tick), or recovering (just ended, in its post-state
- * cooldown) — the latter two both render as the "not currently active" (grey) icon.
- * Active wins over the others if a system somehow has both (e.g. one of the two factions
- * is already at war while the other merely has it pending). Details list every
- * contributing faction/state pair, for the icon's tooltip.
+ * Logs a structured anomaly record (issue #6, R8) when the legacy `state` scalar names a
+ * conflict that the modern `active_states`-derived render rejects — either because `state`
+ * isn't corroborated by the faction's own `active_states` (R2), or because it is but no
+ * second faction in the system shares it (R3). This is dev-only diagnostic signal for
+ * whether Spansh's legacy field keeps drifting from the modern one; it never reaches render.
+ */
+function logConflictStateAnomaly(
+  systemName: string,
+  presence: MinorFactionPresence,
+  reason: string,
+): void {
+  logger.warn('BGS conflict-state anomaly', {
+    system: systemName,
+    faction: presence.name,
+    state: presence.state,
+    active_states: presence.active_states ?? [],
+    reason,
+  });
+}
+
+/**
+ * Checks Canonn's and CDSR's presences for a matching conflict state (war or election),
+ * active or pending (about to start next tick). Implements issue #6's rules:
+ *  - R1/R2: only `active_states`/`pending_states` drive the render. The legacy `state`
+ *    scalar is read only to detect anomalies (R8, below) — it never decides active/pending
+ *    status on its own.
+ *  - R3: an active conflict needs at least one other faction in the same system
+ *    corroborating the same (normalised) state in its own `active_states` — a lone
+ *    combatant is impossible and is suppressed (and logged as an anomaly).
+ *  - R4: state names are compared after normalising (lowercase, non-alphanumerics stripped).
+ *  - R9: `recovering_states` never renders — active wins if a system somehow has both an
+ *    active and a pending entry for the same conflict.
+ * Details list every contributing faction/state pair, for the icon's tooltip.
  */
 function summarizeFactionState(
+  systemName: string,
   presences: readonly MinorFactionPresence[],
-  matchesState: (state: string) => boolean,
+  conflictStates: ReadonlySet<string>,
 ): { status: FactionStateStatus; details: string | null } {
   const active: string[] = [];
-  const notYetActive: string[] = [];
+  const pending: string[] = [];
 
   for (const presence of presences) {
     if (!CANONN_FACTION_NAMES.has(presence.name)) {
       continue;
     }
-    const activeStates = presence.active_states ?? (presence.state ? [presence.state] : []);
-    for (const state of activeStates) {
-      if (matchesState(state)) {
-        active.push(`${presence.name}: ${state}`);
+
+    const rawActiveStates = presence.active_states ?? [];
+    for (const rawState of rawActiveStates) {
+      const normalized = normalizeStateName(rawState);
+      if (!conflictStates.has(normalized)) {
+        continue;
+      }
+      const corroborators = presences.filter(other =>
+        (other.active_states ?? []).some(s => normalizeStateName(s) === normalized),
+      );
+      if (corroborators.length >= 2) {
+        active.push(`${presence.name}: ${rawState}`);
+      } else {
+        logConflictStateAnomaly(systemName, presence, `R3: no second faction corroborates active "${rawState}"`);
       }
     }
-    for (const state of presence.pending_states ?? []) {
-      if (matchesState(state)) {
-        notYetActive.push(`${presence.name}: ${state} (pending)`);
+
+    for (const rawState of presence.pending_states ?? []) {
+      if (conflictStates.has(normalizeStateName(rawState))) {
+        pending.push(`${presence.name}: ${rawState} (pending)`);
       }
     }
-    for (const state of presence.recovering_states ?? []) {
-      if (matchesState(state)) {
-        notYetActive.push(`${presence.name}: ${state} (recovering)`);
+
+    // R1/R2 anomaly: the legacy `state` scalar names a conflict not corroborated by
+    // active_states. `recovering_states` doesn't get this same treatment since it's not a
+    // legacy field disagreeing with a modern one — R9 just never renders it.
+    if (presence.state && conflictStates.has(normalizeStateName(presence.state))) {
+      const corroborated = rawActiveStates.some(s => normalizeStateName(s) === normalizeStateName(presence.state!));
+      if (!corroborated) {
+        logConflictStateAnomaly(systemName, presence, `R2: legacy state "${presence.state}" absent from active_states`);
       }
     }
   }
@@ -266,8 +328,8 @@ function summarizeFactionState(
   if (active.length > 0) {
     return { status: 'active', details: active.join('\n') };
   }
-  if (notYetActive.length > 0) {
-    return { status: 'pending', details: notYetActive.join('\n') };
+  if (pending.length > 0) {
+    return { status: 'pending', details: pending.join('\n') };
   }
   return { status: null, details: null };
 }
@@ -423,8 +485,8 @@ export class CanonnBgsService {
     const info = architects.get(record.name);
     const canonnInfluence = this.influencePercent(presences, CANONN_FACTION);
     const cdsrInfluence = this.influencePercent(presences, CDSR_FACTION);
-    const war = summarizeFactionState(presences, state => WAR_STATES.has(state));
-    const election = summarizeFactionState(presences, state => state === ELECTION_STATE);
+    const war = summarizeFactionState(record.name, presences, WAR_STATES);
+    const election = summarizeFactionState(record.name, presences, ELECTION_STATES);
     return {
       systemName: record.name,
       controllingFaction: record.controlling_minor_faction ?? null,
