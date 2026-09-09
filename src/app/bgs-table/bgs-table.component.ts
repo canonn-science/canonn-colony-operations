@@ -131,10 +131,10 @@ function compareDescendingNullsLast(a: number | null, b: number | null): number 
  * developed system matters more when priority is otherwise equal. This tiebreak direction
  * never flips with the column's own asc/desc toggle.
  */
-export function comparePriorityRows(a: BgsRow, b: BgsRow, direction: SortDirection): number {
+export function comparePriorityRows(a: BgsRow, b: BgsRow, direction: SortDirection, nowMs: number = Date.now()): number {
   const primary = compareColumnValues(
-    prioritySortKey(computePriorityAssessment(a)),
-    prioritySortKey(computePriorityAssessment(b)),
+    prioritySortKey(computePriorityAssessment(a, nowMs)),
+    prioritySortKey(computePriorityAssessment(b, nowMs)),
     direction,
   );
   if (primary !== 0) {
