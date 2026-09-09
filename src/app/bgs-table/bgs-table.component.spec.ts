@@ -1,7 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { MatDialog } from '@angular/material/dialog';
 import { BgsPage, BgsRow, CanonnBgsService } from '../canonn-bgs.service';
-import { BgsTableComponent } from './bgs-table.component';
+import { BgsTableComponent, comparePriorityRows } from './bgs-table.component';
 
 /** A minimal, fully-populated row — only `systemName` varies between rows in these tests. */
 function row(systemName: string): BgsRow {
@@ -20,6 +20,11 @@ function row(systemName: string): BgsRow {
     electionState: null,
     electionDetails: null,
     electionIsCanonnVsCanonn: false,
+    retreatState: null,
+    retreatDetails: null,
+    expansionState: null,
+    bodyCount: null,
+    population: null,
     x: 0,
     y: 0,
     z: 0,
@@ -133,5 +138,47 @@ describe('BgsTableComponent paging against a large API page size (issue #7 follo
     expect(pageZeroCalls).toBe(1);
     expect(freshComponent['visibleRows']().length).toBe(100);
     expect(freshComponent['visibleRows']()[0].systemName).toBe('System 0');
+  });
+});
+
+describe('comparePriorityRows', () => {
+  /** Three otherwise-identical P0 systems (an active war), varying only population/body count. */
+  function p0Row(systemName: string, population: number | null, bodyCount: number | null): BgsRow {
+    return { ...row(systemName), preferredFaction: 'Canonn', warState: 'active', population, bodyCount };
+  }
+
+  it('breaks a tied priority score by higher population first', () => {
+    const highPop = p0Row('High Pop', 10_000_000, 10);
+    const lowPop = p0Row('Low Pop', 10, 10);
+
+    expect(comparePriorityRows(highPop, lowPop, 'desc')).toBeLessThan(0); // highPop sorts first
+    expect(comparePriorityRows(lowPop, highPop, 'desc')).toBeGreaterThan(0);
+  });
+
+  it('breaks a population tie by higher body count', () => {
+    const moreBodies = p0Row('More Bodies', 10, 10);
+    const fewerBodies = p0Row('Fewer Bodies', 10, 1);
+
+    expect(comparePriorityRows(moreBodies, fewerBodies, 'desc')).toBeLessThan(0);
+  });
+
+  it('ranks all three example systems in the requested order regardless of sort direction', () => {
+    const highPopHighBodies = p0Row('A', 10_000_000, 10);
+    const lowPopHighBodies = p0Row('B', 10, 10);
+    const lowPopLowBodies = p0Row('C', 10, 1);
+    const systems = [lowPopLowBodies, highPopHighBodies, lowPopHighBodies];
+
+    for (const direction of ['desc', 'asc'] as const) {
+      const sorted = [...systems].sort((a, b) => comparePriorityRows(a, b, direction));
+      expect(sorted.map(s => s.systemName)).toEqual(['A', 'B', 'C']);
+    }
+  });
+
+  it('still lets the priority score itself take precedence over population/body count', () => {
+    const worseScoreBigSystem = { ...row('Big but quiet'), preferredFaction: 'Canonn', population: 10_000_000, bodyCount: 50 };
+    const betterScoreSmallSystem = p0Row('Small but at war', 1, 1);
+
+    // Descending (highest priority first): the P0 war system beats the quiet big system.
+    expect(comparePriorityRows(betterScoreSmallSystem, worseScoreBigSystem, 'desc')).toBeLessThan(0);
   });
 });

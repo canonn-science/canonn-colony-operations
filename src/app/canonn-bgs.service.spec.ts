@@ -1,5 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { BGS_PAGE_SIZE, CanonnBgsService } from './canonn-bgs.service';
+import { logger } from './data/logger';
 
 const BGS_ENDPOINT = 'https://us-central1-canonn-api-236217.cloudfunctions.net/query/canonnbgs';
 const ARCHITECTS_ENDPOINT = `${BGS_ENDPOINT}/architects`;
@@ -106,5 +107,119 @@ describe('CanonnBgsService pagination against a differently-sized API page (issu
     // per-page size and used to recompute totalPages.
     expect(last.rows.length).toBe(TOTAL_SYSTEMS - REAL_API_PAGE_SIZE);
     expect(last.totalPages).toBe(2);
+  });
+});
+
+interface FactionPresenceFixture {
+  name: string;
+  influence: number;
+  active_states?: string[];
+  pending_states?: string[];
+}
+
+function systemWithPresences(
+  name: string,
+  presences: FactionPresenceFixture[],
+  extra: { body_count?: number; population?: number } = {},
+) {
+  return { name, controlling_minor_faction: null, x: 0, y: 0, z: 0, minor_faction_presences: presences, ...extra };
+}
+
+describe('CanonnBgsService state summarisation (retreat, FR-1/FR-2)', () => {
+  let service: CanonnBgsService;
+  let fetchMock: ReturnType<typeof vi.fn>;
+  let records: ReturnType<typeof systemWithPresences>[];
+
+  beforeEach(() => {
+    localStorage.clear();
+    records = [];
+    fetchMock = vi.fn((url: string) => {
+      if (url === BGS_ENDPOINT) {
+        return Promise.resolve(textResponse(JSON.stringify(TOKEN)));
+      }
+      if (url.startsWith(`${ARCHITECTS_ENDPOINT}/`)) {
+        return Promise.resolve(textResponse('[]'));
+      }
+      if (url.startsWith('https://docs.google.com/')) {
+        return Promise.reject(new Error('sheet unavailable in test'));
+      }
+      if (BGS_PAGE_URL.test(url)) {
+        return Promise.resolve(textResponse(JSON.stringify({ count: records.length, from: 0, results: records })));
+      }
+      return Promise.reject(new Error(`Unexpected fetch in test: ${url}`));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    TestBed.configureTestingModule({});
+    service = TestBed.inject(CanonnBgsService);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('renders an active retreat for a single faction, with no second corroborator required', async () => {
+    records = [
+      systemWithPresences('Varati Ring', [
+        { name: 'Canonn Deep Space Research', influence: 0.021, active_states: ['Retreat'] },
+        { name: 'Other Faction', influence: 0.5 },
+      ]),
+    ];
+
+    const page = await service.getPage(0);
+
+    expect(page.rows[0].retreatState).toBe('active');
+    expect(page.rows[0].retreatDetails).toBe('Retreat: Canonn Deep Space Research (2.1%)');
+  });
+
+  it('does not log an anomaly for an unpaired pending retreat (R9 only applies to two-party states)', async () => {
+    const warnSpy = vi.spyOn(logger, 'warn');
+    const logSpy = vi.spyOn(logger, 'log');
+    records = [
+      systemWithPresences('Varati Ring', [
+        { name: 'Canonn Deep Space Research', influence: 0.05, pending_states: ['Retreat'] },
+      ]),
+    ];
+
+    const page = await service.getPage(0);
+    const anomalyCalls = (calls: unknown[][]) => calls.filter(([message]) => message === 'BGS conflict-state anomaly');
+
+    expect(page.rows[0].retreatState).toBe('pending');
+    expect(anomalyCalls(warnSpy.mock.calls)).toEqual([]);
+    expect(anomalyCalls(logSpy.mock.calls)).toEqual([]);
+  });
+
+  it('suppresses the retreat icon for a faction in its own home system', async () => {
+    records = [
+      systemWithPresences('Varati', [{ name: 'Canonn', influence: 0.02, active_states: ['Retreat'] }]),
+    ];
+
+    const page = await service.getPage(0);
+
+    expect(page.rows[0].retreatState).toBeNull();
+  });
+
+  it('still surfaces a retreat for the same faction away from its home system', async () => {
+    records = [
+      systemWithPresences('Some Other System', [{ name: 'Canonn', influence: 0.02, active_states: ['Retreat'] }]),
+    ];
+
+    const page = await service.getPage(0);
+
+    expect(page.rows[0].retreatState).toBe('active');
+  });
+
+  it('maps body_count and population through to the row, defaulting to null when the API omits them', async () => {
+    records = [
+      systemWithPresences('With Data', [], { body_count: 32, population: 26481079 }),
+      systemWithPresences('Without Data', []),
+    ];
+
+    const page = await service.getPage(0);
+
+    expect(page.rows[0].bodyCount).toBe(32);
+    expect(page.rows[0].population).toBe(26481079);
+    expect(page.rows[1].bodyCount).toBeNull();
+    expect(page.rows[1].population).toBeNull();
   });
 });

@@ -136,6 +136,15 @@
     white-space: nowrap;
   }
 
+  // Faction/architect names run long ("Canonn Deep Space Research") and are the columns
+  // most likely to push the table wider than the viewport — wrapping them onto a second
+  // line keeps every column visible without horizontal scrolling on a typical screen.
+  .bgs-col-wrap {
+    max-width: 150px;
+    white-space: normal;
+    overflow-wrap: break-word;
+  }
+
   thead th {
     position: sticky;
     top: 0;
@@ -276,6 +285,56 @@
   width: 1.15rem;
   height: 1.15rem;
   vertical-align: middle;
+}
+
+// Retreat's warning icon carries its own colour well enough as-is; pending styling still
+// comes from the shared .bgs-state-icon--pending rule above.
+.bgs-state-icon--retreat {
+  filter: none;
+}
+
+.bgs-col-priority {
+  width: 60px;
+  text-align: center;
+}
+
+// Sized to its own text (P0-P4 or the stop sign), not a fixed box like the Freshness pill —
+// centred within the column via .bgs-col-priority's text-align.
+.bgs-priority-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: default;
+  background-color: var(--priority-bg);
+  color: var(--priority-fg);
+}
+
+.bgs-priority-pill--P0 {
+  --priority-bg: #f8d7da;
+  --priority-fg: #7a1420;
+}
+.bgs-priority-pill--P1 {
+  --priority-bg: #faeeda;
+  --priority-fg: #633806;
+}
+.bgs-priority-pill--P2 {
+  --priority-bg: #faece7;
+  --priority-fg: #712b13;
+}
+.bgs-priority-pill--P3,
+.bgs-priority-pill--P4 {
+  --priority-bg: #eceef0;
+  --priority-fg: #5f6368;
+}
+.bgs-priority-pill--out-of-scope {
+  --priority-bg: transparent;
+  --priority-fg: var(--color-text-muted);
+  // The stop sign is the only content this pill ever shows — sized up to at least the
+  // height of the P0-P4 badges (padding included), matching the State column's icon size.
+  font-size: 1.15rem;
 }
 
 .bgs-row-progress td {
