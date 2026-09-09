@@ -361,8 +361,9 @@
                       class="bgs-state-icon bgs-state-icon--retreat"
                       [class.bgs-state-icon--pending]="row.retreatState === 'pending'"
                       [title]="row.retreatDetails"
+                      role="img"
+                      [attr.aria-label]="row.retreatDetails ?? 'Retreat'"
                     >⚠️</span>
-                  }
                   @if (row.warState) {
                     @if (row.warIsCanonnVsCanonn) {
                       <span
