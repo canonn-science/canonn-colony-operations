@@ -349,7 +349,7 @@ export class BgsTableComponent implements OnDestroy {
         }
         const direction = this.sortDirection();
         if (column === 'priority') {
-          return [...base].sort((a, b) => comparePriorityRows(a, b, direction));
+          return [...base].sort((a, b) => comparePriorityRows(a, b, direction, this.now()));
         }
         return [...base].sort((a, b) => compareColumnValues(columnValue(a, column), columnValue(b, column), direction));
       }
