@@ -61,6 +61,15 @@
     </div>
 
     <div class="bgs-filter-group">
+      <button
+        type="button"
+        class="bgs-filter-chip"
+        [class.bgs-filter-chip--active]="needsReconOnly()"
+        (click)="toggleNeedsRecon()"
+      >Needs Recon</button>
+    </div>
+
+    <div class="bgs-filter-group">
       <span class="bgs-filter-label">Architect</span>
       <button
         type="button"
@@ -179,7 +188,21 @@
               </button>
             </th>
             <th class="bgs-col-state">State</th>
-            <th>
+            <th class="bgs-col-priority">
+              <button
+                type="button"
+                class="bgs-sort-header"
+                (click)="sortByColumn('priority')"
+                [disabled]="loading()"
+                title="Sort by priority"
+              >
+                Priority
+                @if (sortIndicator('priority'); as indicator) {
+                  <span class="bgs-sort-indicator">{{ indicator }}</span>
+                }
+              </button>
+            </th>
+            <th class="bgs-col-wrap">
               <button
                 type="button"
                 class="bgs-sort-header"
@@ -221,7 +244,7 @@
                 }
               </button>
             </th>
-            <th>
+            <th class="bgs-col-wrap">
               <button
                 type="button"
                 class="bgs-sort-header"
@@ -235,7 +258,7 @@
                 }
               </button>
             </th>
-            <th>
+            <th class="bgs-col-wrap">
               <button
                 type="button"
                 class="bgs-sort-header"
@@ -254,7 +277,7 @@
         <tbody>
           @if (loadProgress(); as progress) {
             <tr class="bgs-row-progress">
-              <td colspan="9">
+              <td colspan="10">
                 <div class="bgs-progress">
                   <div class="bgs-progress-label">
                     Loading full dataset to sort… {{ progress.loaded }} / {{ progress.total }} pages
@@ -274,6 +297,7 @@
                 <td><span class="skeleton skeleton-line skeleton-w80"></span></td>
                 <td><span class="skeleton skeleton-line skeleton-w40"></span></td>
                 <td><span class="skeleton" style="display: block; width: 80%; height: 28px;"></span></td>
+                <td><span class="skeleton skeleton-line skeleton-w40"></span></td>
                 <td><span class="skeleton skeleton-line skeleton-w40"></span></td>
                 <td><span class="skeleton skeleton-line skeleton-w60"></span></td>
                 <td><span class="skeleton skeleton-line skeleton-w40"></span></td>
@@ -300,7 +324,7 @@
                     target="_blank"
                     rel="noopener noreferrer"
                     class="bgs-system-link"
-                    [title]="'View ' + row.systemName + ' on Inara'"
+                    [title]="systemNameTitle(row)"
                   >{{ row.systemName }}</a>
                 </td>
                 <td class="bgs-col-freshness">
@@ -332,6 +356,13 @@
                   }
                 </td>
                 <td class="bgs-col-state">
+                  @if (row.retreatState) {
+                    <span
+                      class="bgs-state-icon bgs-state-icon--retreat"
+                      [class.bgs-state-icon--pending]="row.retreatState === 'pending'"
+                      [title]="row.retreatDetails"
+                    >⚠️</span>
+                  }
                   @if (row.warState) {
                     @if (row.warIsCanonnVsCanonn) {
                       <span
@@ -362,18 +393,28 @@
                       >🗳️</span>
                     }
                   }
-                  @if (!row.warState && !row.electionState) {
+                  @if (!row.retreatState && !row.warState && !row.electionState) {
                     <span>—</span>
                   }
                 </td>
-                <td>{{ row.controllingFaction ?? '—' }}</td>
+                <td class="bgs-col-priority">
+                  @let priority = priorityFor(row);
+                  <span
+                    class="bgs-priority-pill"
+                    [class]="'bgs-priority-pill--' + priority.tier"
+                    [title]="priorityTitle(priority)"
+                  >
+                    {{ priority.tier === 'out-of-scope' ? '⛔' : priority.tier }}
+                  </span>
+                </td>
+                <td class="bgs-col-wrap">{{ row.controllingFaction ?? '—' }}</td>
                 <td class="bgs-col-influence" [class.bgs-influence--present]="row.canonnInfluence !== null">
                   {{ row.canonnInfluence !== null ? (row.canonnInfluence | number: '1.1-1') + '%' : '—' }}
                 </td>
                 <td class="bgs-col-influence" [class.bgs-influence--present]="row.cdsrInfluence !== null">
                   {{ row.cdsrInfluence !== null ? (row.cdsrInfluence | number: '1.1-1') + '%' : '—' }}
                 </td>
-                <td>
+                <td class="bgs-col-wrap">
                   @if (row.notAColony) {
                     —
                   } @else if (row.architect === null) {
@@ -387,7 +428,7 @@
                     {{ row.architect }}
                   }
                 </td>
-                <td>{{ row.preferredFaction ?? '—' }}</td>
+                <td class="bgs-col-wrap">{{ row.preferredFaction ?? '—' }}</td>
               </tr>
             }
           }

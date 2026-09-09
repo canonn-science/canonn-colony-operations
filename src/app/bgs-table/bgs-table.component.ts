@@ -27,6 +27,7 @@ import { ArchitectSubmission } from '../data/architect-form';
 import { architectNames, suggestArchitects } from '../data/architect-registry';
 import { distanceLy } from '../data/distance';
 import { FreshnessInfo, computeFreshness } from '../data/freshness';
+import { PriorityAssessment, computePriorityAssessment, prioritySortKey } from '../data/priority';
 import { readYourName } from '../data/your-name';
 
 /**
@@ -45,7 +46,8 @@ type SortColumn =
   | 'architect'
   | 'preferredFaction'
   | 'factionCount'
-  | 'freshness';
+  | 'freshness'
+  | 'priority';
 type SortDirection = 'asc' | 'desc';
 
 /** The Architect quick filter's modes: everyone, systems with no architect, or one named architect. */
@@ -89,6 +91,11 @@ function columnValue(row: BgsRow, column: SortColumn): string | number | null {
       // Sort on the raw timestamp, not the rounded label, so two rows with the same
       // displayed age (e.g. both "3w") don't tie arbitrarily.
       return computeFreshness(row.updatedAt).sortValue;
+    case 'priority':
+      // Never reached — the Priority column uses the dedicated comparePriorityRows below,
+      // which also breaks ties by population/body count. TypeScript needs this case for
+      // exhaustiveness since 'priority' is a SortColumn.
+      return null;
   }
 }
 
@@ -104,6 +111,40 @@ function compareColumnValues(a: string | number | null, b: string | number | nul
     ? a - b
     : String(a).localeCompare(String(b), undefined, { sensitivity: 'base' });
   return direction === 'asc' ? cmp : -cmp;
+}
+
+/** Higher wins; an unknown value always loses to a known one; two unknowns tie. Fixed direction — doesn't flip with the outer sort's asc/desc toggle. */
+function compareDescendingNullsLast(a: number | null, b: number | null): number {
+  if (a === null) {
+    return b === null ? 0 : 1;
+  }
+  if (b === null) {
+    return -1;
+  }
+  return b - a;
+}
+
+/**
+ * The Priority column's comparator: the priority sort key (see {@link prioritySortKey})
+ * decides the primary order, direction-sensitive as usual. When two rows tie on that key
+ * (e.g. several P0 systems), population breaks the tie, then body count — a bigger, more
+ * developed system matters more when priority is otherwise equal. This tiebreak direction
+ * never flips with the column's own asc/desc toggle.
+ */
+export function comparePriorityRows(a: BgsRow, b: BgsRow, direction: SortDirection): number {
+  const primary = compareColumnValues(
+    prioritySortKey(computePriorityAssessment(a)),
+    prioritySortKey(computePriorityAssessment(b)),
+    direction,
+  );
+  if (primary !== 0) {
+    return primary;
+  }
+  const populationCmp = compareDescendingNullsLast(a.population, b.population);
+  if (populationCmp !== 0) {
+    return populationCmp;
+  }
+  return compareDescendingNullsLast(a.bodyCount, b.bodyCount);
 }
 
 function toAnchorPoint(system: TypeaheadSystem): AnchorPoint {
@@ -202,6 +243,8 @@ export class BgsTableComponent implements OnDestroy {
   /** Rows shown per display page until the user picks a different size — deliberately small so a big API page (issue #7) doesn't dump hundreds of rows onto the screen at once. */
   protected readonly pageSize = signal<number>(PAGE_SIZE_OPTIONS[0]);
   protected readonly warElectionOnly = signal(false);
+  /** FR-5: "needs recon" pairs naturally with the Distance sort — stale systems near me. */
+  protected readonly needsReconOnly = signal(false);
   protected readonly architectFilterMode = signal<ArchitectFilterMode>('all');
   private readonly architectFilterName = signal('');
   protected readonly factionFilterMode = signal<FactionFilterMode>('all');
@@ -233,7 +276,11 @@ export class BgsTableComponent implements OnDestroy {
   );
 
   protected readonly filtersActive = computed(
-    () => this.warElectionOnly() || this.architectFilterMode() !== 'all' || this.factionFilterMode() !== 'all',
+    () =>
+      this.warElectionOnly() ||
+      this.needsReconOnly() ||
+      this.architectFilterMode() !== 'all' ||
+      this.factionFilterMode() !== 'all',
   );
 
   /**
@@ -258,6 +305,9 @@ export class BgsTableComponent implements OnDestroy {
     let rows = full;
     if (this.warElectionOnly()) {
       rows = rows.filter(row => row.warState !== null || row.electionState !== null);
+    }
+    if (this.needsReconOnly()) {
+      rows = rows.filter(row => this.priorityFor(row).needsRecon);
     }
     switch (this.architectFilterMode()) {
       case 'none':
@@ -298,6 +348,9 @@ export class BgsTableComponent implements OnDestroy {
           return base;
         }
         const direction = this.sortDirection();
+        if (column === 'priority') {
+          return [...base].sort((a, b) => comparePriorityRows(a, b, direction));
+        }
         return [...base].sort((a, b) => compareColumnValues(columnValue(a, column), columnValue(b, column), direction));
       }
       default:
@@ -455,6 +508,11 @@ export class BgsTableComponent implements OnDestroy {
     this.pageIndex.set(0);
   }
 
+  protected toggleNeedsRecon(): void {
+    this.needsReconOnly.update(active => !active);
+    this.pageIndex.set(0);
+  }
+
   protected setArchitectFilterMode(mode: 'all' | 'none'): void {
     this.architectFilterMode.set(mode);
     this.architectFilterName.set('');
@@ -501,13 +559,17 @@ export class BgsTableComponent implements OnDestroy {
     this.pageIndex.set(0);
   }
 
-  /** Sorts the whole table by the given column — ascending, then descending on a repeat click. */
+  /**
+   * Sorts the whole table by the given column, toggling direction on a repeat click. A fresh
+   * click defaults to ascending, except Priority — there "first click" should read as
+   * "highest priority first", not the numerically-smallest score first.
+   */
   protected sortByColumn(column: SortColumn): void {
     if (this.mode() === 'column' && this.sortColumn() === column) {
       this.sortDirection.update(d => (d === 'asc' ? 'desc' : 'asc'));
     } else {
       this.sortColumn.set(column);
-      this.sortDirection.set('asc');
+      this.sortDirection.set(column === 'priority' ? 'desc' : 'asc');
       this.mode.set('column');
     }
     this.pageIndex.set(0);
@@ -527,9 +589,30 @@ export class BgsTableComponent implements OnDestroy {
     return computeFreshness(row.updatedAt, this.now());
   }
 
+  /** The Priority column's badge contents for a row, recomputed as {@link now} ticks forward (its recon bonus depends on elapsed time). */
+  protected priorityFor(row: BgsRow): PriorityAssessment {
+    return computePriorityAssessment(row, this.now());
+  }
+
+  /** Hover text for the Priority pill: the reasons list, plus a refresh request when the reading is stale enough that a recon bonus applied. */
+  protected priorityTitle(priority: PriorityAssessment): string {
+    if (priority.tier === 'out-of-scope') {
+      return 'Do not work the BGS in this system';
+    }
+    const reasons = priority.reasons.map(r => r.label).join('\n');
+    return priority.needsRecon ? `${reasons}\nStale reading — please fly through this system to refresh it.` : reasons;
+  }
+
   /** Accessible text equivalent of the Factions mini bar chart, for screen readers. */
   protected factionsSummary(row: BgsRow): string {
     return row.factions.map(f => `${f.name}: ${f.influencePercent.toFixed(1)}%`).join(', ');
+  }
+
+  /** Hover text for the System Name link: the Inara hint plus body count and population. */
+  protected systemNameTitle(row: BgsRow): string {
+    const bodyCount = row.bodyCount !== null ? row.bodyCount.toLocaleString() : '—';
+    const population = row.population !== null ? row.population.toLocaleString() : '—';
+    return `View ${row.systemName} on Inara\nBodyCount: ${bodyCount} Pop ${population}`;
   }
 
   /**

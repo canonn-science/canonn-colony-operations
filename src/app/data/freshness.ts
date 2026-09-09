@@ -42,7 +42,7 @@ export function parseUpdatedAt(raw: string | null | undefined): number | null {
 }
 
 /** Whole days elapsed between `updatedAtMs` and `nowMs`, clamped to zero for future timestamps. */
-function daysElapsed(updatedAtMs: number, nowMs: number): number {
+export function daysElapsed(updatedAtMs: number, nowMs: number): number {
   const ms = nowMs - updatedAtMs;
   return Math.max(0, Math.floor(ms / (24 * 60 * 60 * 1000)));
 }

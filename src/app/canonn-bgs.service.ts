@@ -11,6 +11,7 @@ import {
   ArchitectRegistryRow,
   buildArchitectInfoMap,
 } from './data/architect-registry';
+import { isHomeSystem } from './data/home-systems';
 import { logger } from './data/logger';
 
 /** Base URL for the Canonn cloud-function query API. */
@@ -63,6 +64,17 @@ const CANONN_FACTION_NAMES: ReadonlySet<string> = new Set([CANONN_FACTION, CDSR_
  */
 const WAR_STATES: ReadonlySet<string> = new Set(['war', 'civilwar']);
 const ELECTION_STATES: ReadonlySet<string> = new Set(['election']);
+/**
+ * Retreat is a single-faction state — a faction retreats on its own, with no opposing party
+ * — unlike war/election. See {@link StateSetConfig.requiresCorroboration}.
+ */
+const RETREAT_STATES: ReadonlySet<string> = new Set(['retreat']);
+/**
+ * Also single-faction, like retreat. Not rendered as a State-column icon (deferred per the
+ * feature spec) — only read internally, to score the priority table's "expansion unwanted"
+ * trigger.
+ */
+const EXPANSION_STATES: ReadonlySet<string> = new Set(['expansion']);
 
 /**
  * Normalises a BGS state name for comparison (issue #6, R4): Spansh humanises state names
@@ -129,6 +141,9 @@ interface BgsSystemRecord {
   z: number;
   /** When this system's data was last updated, e.g. "2026-08-06 19:52:24+00". Not strict ISO 8601 — see {@link parseUpdatedAt}. */
   updated_at?: string | null;
+  /** Number of astronomical bodies scanned in the system. */
+  body_count?: number | null;
+  population?: number | null;
 }
 
 interface BgsPageResponse {
@@ -193,6 +208,23 @@ export interface BgsRow {
   electionDetails: string | null;
   /** True when the election's two parties are Canonn and CDSR themselves — renders the Canonn icon instead of the ballot box. */
   electionIsCanonnVsCanonn: boolean;
+  /**
+   * Whether Canonn or CDSR is (or is about to be) retreating here — drives the State
+   * column's warning icon. Never set for a faction in its own home system (FR-2). Unlike
+   * war/election, retreat is single-faction, so there's no "vs" equivalent.
+   */
+  retreatState: FactionStateStatus;
+  /** Tooltip text for the retreat icon (faction and influence, one line per faction), or null if retreatState is null. */
+  retreatDetails: string | null;
+  /**
+   * Whether Canonn or CDSR is (or is about to be) expanding here. Internal-only input for
+   * the priority score's "expansion unwanted" trigger — not rendered as a State column icon.
+   */
+  expansionState: FactionStateStatus;
+  /** Number of astronomical bodies scanned in the system — shown in the System Name tooltip. Null if the API omits it. */
+  bodyCount: number | null;
+  /** The system's population — shown in the System Name tooltip and used as the Priority column's secondary sort (a bigger system matters more when priority ties). */
+  population: number | null;
   /** Galactic coordinates (light-years), used to compute the Distance column. */
   x: number;
   y: number;
@@ -340,62 +372,98 @@ function describeConflict(corroborators: readonly MinorFactionPresence[]): strin
 }
 
 /**
- * Checks Canonn's and CDSR's presences for a matching conflict state (war or election),
- * active or pending (about to start next tick), and along the way runs the R8 anomaly
- * diagnostics for every faction in the system. Implements issue #6's rules:
+ * "Canonn Deep Space Research (2.1%)" — a single-faction state (retreat, expansion) has no
+ * opposing party to name, so its detail line names the faction and its current influence
+ * instead of the war/election "X vs Y" format {@link describeConflict} produces.
+ */
+function describeSingleFaction(corroborators: readonly MinorFactionPresence[]): string {
+  return corroborators.map(c => `${c.name} (${(c.influence * 100).toFixed(1)}%)`).join(', ');
+}
+
+/**
+ * A state or set of related state names (e.g. war + civil war) to summarise, and how it
+ * behaves: war/election are two-party conflicts (R3/R9's corroboration requirement below
+ * applies); retreat/expansion are single-faction states a faction enters on its own, so
+ * that requirement — and the R3/R9 anomaly diagnostics it drives — must not apply to them.
+ */
+interface StateSetConfig {
+  states: ReadonlySet<string>;
+  /** War/election: true. Retreat/expansion: false — see the interface doc above. */
+  requiresCorroboration: boolean;
+  /** Detail-line formatter; defaults to {@link describeConflict}'s "X vs Y". */
+  describeMatch?: (corroborators: readonly MinorFactionPresence[]) => string;
+  /** When given, a match is suppressed entirely for a faction this returns true for (FR-2: a faction can't retreat from its own home system). */
+  isSuppressed?: (factionName: string, systemName: string) => boolean;
+}
+
+/**
+ * Checks Canonn's and CDSR's presences for a matching state (war, election, retreat, or
+ * expansion — see {@link StateSetConfig}), active or pending (about to start next tick), and
+ * along the way runs the R8 anomaly diagnostics for every faction in the system. Implements
+ * issue #6's rules:
  *  - R1/R2: only `active_states`/`pending_states` drive the render. The legacy `state`
  *    scalar is read only to detect anomalies (R8) — it never decides active/pending status
  *    on its own.
- *  - R3: an active conflict needs at least one other faction in the same system
- *    corroborating the same (normalised) state in its own `active_states` — a lone
- *    combatant is impossible and is suppressed (and logged as an anomaly).
+ *  - R3: for a two-party state, an active instance needs at least one other faction in the
+ *    same system corroborating the same (normalised) state in its own `active_states` — a
+ *    lone combatant is impossible and is suppressed (and logged as an anomaly). Doesn't
+ *    apply to a single-faction state (`requiresCorroboration: false`) — a lone retreat is
+ *    the expected case, not an anomaly.
  *  - R4: state names are compared after normalising (lowercase, non-alphanumerics stripped).
  *  - R9: `recovering_states` never renders — active wins if a system somehow has both an
- *    active and a pending entry for the same conflict. Pending entries aren't subject to
- *    R3's two-party requirement, but an unpaired one still gets a lower-severity anomaly.
+ *    active and a pending entry for the same state. A two-party state's pending entry isn't
+ *    subject to R3's requirement either, but an unpaired one still gets a lower-severity
+ *    anomaly; single-faction states skip this diagnostic too, for the same reason as R3.
  *  - R10: a `pending_states` entry may be a bare string or `{state, trend}` — `trend` is
  *    never read.
- * Details are one line per distinct conflict, e.g. `"War: Canonn vs Varati Ring"` — naming
- * who's actually fighting rather than just which of our own factions is involved — for the
- * icon's tooltip.
+ * Details are one line per distinct match, e.g. `"War: Canonn vs Varati Ring"` for a
+ * two-party state, or `"Retreat: Canonn Deep Space Research (2.1%)"` for a single-faction
+ * one — naming who's actually involved rather than just which of our own factions is,
+ * for the icon's tooltip.
  *
- * Also reports `isCanonnVsCanonn`: true when the only two factions sharing the state are
- * Canonn and CDSR themselves. We only care about conflicts Canonn/CDSR are a party to (see
+ * Also reports `isCanonnVsCanonn`: true when the only two factions sharing a two-party state
+ * are Canonn and CDSR themselves. We only care about matches Canonn/CDSR are a party to (see
  * the render loop's `CANONN_FACTION_NAMES` filter below); when the *other* party also turns
  * out to be Canonn/CDSR, that's a distinct case worth flagging on its own icon rather than
- * showing as an ordinary war/election against a third-party faction.
+ * showing as an ordinary war/election against a third-party faction. Always false for a
+ * single-faction state, which has no "other party" at all.
  */
 function summarizeFactionState(
   systemName: string,
   snapshotTime: string | null,
   presences: readonly MinorFactionPresence[],
-  conflictStates: ReadonlySet<string>,
+  config: StateSetConfig,
 ): { status: FactionStateStatus; details: string | null; isCanonnVsCanonn: boolean } {
-  // R8 diagnostics: every faction, not just Canonn/CDSR.
+  const { states: conflictStates, requiresCorroboration, isSuppressed } = config;
+  const describeMatch = config.describeMatch ?? describeConflict;
+
+  // R8 diagnostics: every faction, not just Canonn/CDSR. R3/R9 only apply to two-party states.
   for (const presence of presences) {
     const rawActiveStates = presence.active_states ?? [];
-    for (const rawState of rawActiveStates) {
-      const normalized = normalizeStateName(rawState);
-      if (!conflictStates.has(normalized)) {
-        continue;
+    if (requiresCorroboration) {
+      for (const rawState of rawActiveStates) {
+        const normalized = normalizeStateName(rawState);
+        if (!conflictStates.has(normalized)) {
+          continue;
+        }
+        if (activeCorroborators(presences, normalized).length < 2) {
+          logConflictStateAnomaly(systemName, snapshotTime, presence, `R3: no second faction corroborates active "${rawState}"`);
+        }
       }
-      if (activeCorroborators(presences, normalized).length < 2) {
-        logConflictStateAnomaly(systemName, snapshotTime, presence, `R3: no second faction corroborates active "${rawState}"`);
+
+      for (const entry of presence.pending_states ?? []) {
+        const stateName = pendingEntryStateName(entry);
+        const normalized = normalizeStateName(stateName);
+        if (!conflictStates.has(normalized)) {
+          continue;
+        }
+        if (pendingCorroborators(presences, normalized).length < 2) {
+          logConflictStateAnomaly(systemName, snapshotTime, presence, `R9: unpaired pending "${stateName}"`, 'info');
+        }
       }
     }
 
-    for (const entry of presence.pending_states ?? []) {
-      const stateName = pendingEntryStateName(entry);
-      const normalized = normalizeStateName(stateName);
-      if (!conflictStates.has(normalized)) {
-        continue;
-      }
-      if (pendingCorroborators(presences, normalized).length < 2) {
-        logConflictStateAnomaly(systemName, snapshotTime, presence, `R9: unpaired pending "${stateName}"`, 'info');
-      }
-    }
-
-    // R1/R2 anomaly: the legacy `state` scalar names a conflict not corroborated by
+    // R1/R2 anomaly: the legacy `state` scalar names a match not corroborated by
     // active_states. `recovering_states` doesn't get this same treatment since it's not a
     // legacy field disagreeing with a modern one — R9 just never renders it (but is still
     // included in the anomaly record above, as evidence).
@@ -407,9 +475,9 @@ function summarizeFactionState(
     }
   }
 
-  // Render: Canonn/CDSR only — a war or election we're not a party to isn't shown. Details
-  // are keyed by (state, corroborator set) and deduped, since Canonn and CDSR being on the
-  // same side of the same conflict would otherwise produce the same "X vs Y" line twice.
+  // Render: Canonn/CDSR only — a match we're not a party to isn't shown. Details are keyed
+  // by (state, corroborator set) and deduped, since Canonn and CDSR being on the same side
+  // of the same two-party state would otherwise produce the same "X vs Y" line twice.
   const active: string[] = [];
   const pending: string[] = [];
   const seenActive = new Set<string>();
@@ -418,7 +486,7 @@ function summarizeFactionState(
   let pendingIsCanonnVsCanonn = false;
 
   for (const presence of presences) {
-    if (!CANONN_FACTION_NAMES.has(presence.name)) {
+    if (!CANONN_FACTION_NAMES.has(presence.name) || isSuppressed?.(presence.name, systemName)) {
       continue;
     }
 
@@ -428,13 +496,13 @@ function summarizeFactionState(
         continue;
       }
       const corroborators = activeCorroborators(presences, normalized);
-      if (corroborators.length < 2) {
+      if (requiresCorroboration && corroborators.length < 2) {
         continue;
       }
       const key = `${normalized}|${corroborators.map(c => c.name).sort().join(',')}`;
       if (!seenActive.has(key)) {
         seenActive.add(key);
-        active.push(`${rawState}: ${describeConflict(corroborators)}`);
+        active.push(`${rawState}: ${describeMatch(corroborators)}`);
       }
       if (isCanonnOnlyPair(corroborators)) {
         activeIsCanonnVsCanonn = true;
@@ -451,7 +519,7 @@ function summarizeFactionState(
       const key = `${normalized}|${corroborators.map(c => c.name).sort().join(',')}`;
       if (!seenPending.has(key)) {
         seenPending.add(key);
-        pending.push(`${stateName}: ${describeConflict(corroborators)} (pending)`);
+        pending.push(`${stateName}: ${describeMatch(corroborators)} (pending)`);
       }
       if (isCanonnOnlyPair(corroborators)) {
         pendingIsCanonnVsCanonn = true;
@@ -641,8 +709,19 @@ export class CanonnBgsService {
     const canonnInfluence = this.influencePercent(presences, CANONN_FACTION);
     const cdsrInfluence = this.influencePercent(presences, CDSR_FACTION);
     const snapshotTime = record.updated_at ?? null;
-    const war = summarizeFactionState(record.name, snapshotTime, presences, WAR_STATES);
-    const election = summarizeFactionState(record.name, snapshotTime, presences, ELECTION_STATES);
+    const war = summarizeFactionState(record.name, snapshotTime, presences, { states: WAR_STATES, requiresCorroboration: true });
+    const election = summarizeFactionState(record.name, snapshotTime, presences, { states: ELECTION_STATES, requiresCorroboration: true });
+    const retreat = summarizeFactionState(record.name, snapshotTime, presences, {
+      states: RETREAT_STATES,
+      requiresCorroboration: false,
+      describeMatch: describeSingleFaction,
+      isSuppressed: isHomeSystem,
+    });
+    const expansion = summarizeFactionState(record.name, snapshotTime, presences, {
+      states: EXPANSION_STATES,
+      requiresCorroboration: false,
+      describeMatch: describeSingleFaction,
+    });
     return {
       systemName: record.name,
       controllingFaction: record.controlling_minor_faction ?? null,
@@ -664,6 +743,11 @@ export class CanonnBgsService {
       electionState: election.status,
       electionDetails: election.details,
       electionIsCanonnVsCanonn: election.isCanonnVsCanonn,
+      retreatState: retreat.status,
+      retreatDetails: retreat.details,
+      expansionState: expansion.status,
+      bodyCount: record.body_count ?? null,
+      population: record.population ?? null,
       x: record.x,
       y: record.y,
       z: record.z,
