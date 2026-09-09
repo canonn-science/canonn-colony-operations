@@ -73,6 +73,15 @@ describe('resolveScope', () => {
   it('is "assumed" with no lead when neither faction is present', () => {
     expect(resolveScope(row())).toEqual({ scope: 'assumed', leadFaction: null });
   });
+
+  it('is "no-preference" when an architect is confirmed but left the faction preference blank', () => {
+    // Distinct from "no registry row at all": someone has already looked at this system, so
+    // there's no reason to guess a lead from influence presence the way "assumed" does.
+    expect(resolveScope(row({ architect: 'Some Commander', canonnInfluence: 10 }))).toEqual({
+      scope: 'no-preference',
+      leadFaction: null,
+    });
+  });
 });
 
 describe('factionCountWeight', () => {
@@ -153,6 +162,20 @@ describe('computePriorityAssessment', () => {
     expect(assessment.tier).toBe('out-of-scope');
     expect(assessment.score).toBeNull();
     expect(assessment.needsRecon).toBe(false);
+  });
+
+  it('is "not-applicable" with a null score, excluded entirely, when an architect is confirmed but no faction is preferred', () => {
+    // Even an active war/retreat must not surface here — a confirmed architect with a blank
+    // preference is a different situation from "no registry row at all" and isn't guessed at.
+    const assessment = computePriorityAssessment(
+      row({ architect: 'Some Commander', canonnInfluence: 10, warState: 'active', retreatState: 'active' }),
+      NOW,
+    );
+    expect(assessment.tier).toBe('not-applicable');
+    expect(assessment.scope).toBe('no-preference');
+    expect(assessment.score).toBeNull();
+    expect(assessment.needsRecon).toBe(false);
+    expect(assessment.reasons).toHaveLength(1);
   });
 
   it('scores an active retreat at 100 (P0), unweighted, outranking an active war', () => {

@@ -399,13 +399,17 @@
                 </td>
                 <td class="bgs-col-priority">
                   @let priority = priorityFor(row);
-                  <span
-                    class="bgs-priority-pill"
-                    [class]="'bgs-priority-pill--' + priority.tier"
-                    [title]="priorityTitle(priority)"
-                  >
-                    {{ priority.tier === 'out-of-scope' ? '⛔' : priority.tier }}
-                  </span>
+                  @if (priority.tier === 'not-applicable') {
+                    <span>—</span>
+                  } @else {
+                    <span
+                      class="bgs-priority-pill"
+                      [class]="'bgs-priority-pill--' + priority.tier"
+                      [title]="priorityTitle(priority)"
+                    >
+                      {{ priority.tier === 'out-of-scope' ? '⛔' : priority.tier }}
+                    </span>
+                  }
                 </td>
                 <td class="bgs-col-wrap">{{ row.controllingFaction ?? '—' }}</td>
                 <td class="bgs-col-influence" [class.bgs-influence--present]="row.canonnInfluence !== null">

@@ -7,8 +7,8 @@
 import { BgsRow, CANONN_FACTION, CDSR_FACTION } from '../canonn-bgs.service';
 import { daysElapsed, parseUpdatedAt } from './freshness';
 
-export type PriorityTier = 'P0' | 'P1' | 'P2' | 'P3' | 'P4' | 'out-of-scope';
-export type PriorityScope = 'in-scope' | 'assumed' | 'out-of-scope';
+export type PriorityTier = 'P0' | 'P1' | 'P2' | 'P3' | 'P4' | 'out-of-scope' | 'not-applicable';
+export type PriorityScope = 'in-scope' | 'assumed' | 'out-of-scope' | 'no-preference';
 
 /** One applicable trigger, already weighted — the tooltip lists these, highest first. */
 export interface PriorityReason {
@@ -97,10 +97,13 @@ const CDSR_KEY = factionKey(CDSR_FACTION);
  *  - Preferred faction names anyone else → out-of-scope — a standing agreement is worse to
  *    breach than to leave unworked.
  *  - "Not a colony" with no preference → in-scope, Canonn leads by default policy.
- *  - No confirmed answer at all (no registry row, or a row with a blank preference) →
- *    "assumed": lead is guessed from whichever of our factions has presence (the one with
- *    more influence if both do), and the caller must restrict this scope to defensive
- *    triggers only — never rank a push for control off an assumption nobody has confirmed.
+ *  - An architect is confirmed but left the preference blank → "no-preference": someone has
+ *    already looked at this system and didn't name us, so unlike the truly-unknown case below
+ *    there's no reason to guess a lead from influence presence — it's simply excluded.
+ *  - No registry row at all → "assumed": lead is guessed from whichever of our factions has
+ *    presence (the one with more influence if both do), and the caller must restrict this
+ *    scope to defensive triggers only — never rank a push for control off an assumption
+ *    nobody has confirmed.
  */
 export function resolveScope(row: BgsRow): { scope: PriorityScope; leadFaction: string | null } {
   const preferred = row.preferredFaction?.trim();
@@ -117,6 +120,10 @@ export function resolveScope(row: BgsRow): { scope: PriorityScope; leadFaction: 
 
   if (row.notAColony) {
     return { scope: 'in-scope', leadFaction: CANONN_FACTION };
+  }
+
+  if (row.architect !== null) {
+    return { scope: 'no-preference', leadFaction: null };
   }
 
   if (row.canonnInfluence !== null && row.cdsrInfluence !== null) {
@@ -253,6 +260,17 @@ export function computePriorityAssessment(row: BgsRow, nowMs: number = Date.now(
       leadFaction: null,
       score: null,
       reasons: [{ code: 'out-of-scope', label: `Preferred faction is ${row.preferredFaction} — hands off`, score: 0 }],
+      needsRecon: false,
+    };
+  }
+
+  if (scope === 'no-preference') {
+    return {
+      tier: 'not-applicable',
+      scope,
+      leadFaction: null,
+      score: null,
+      reasons: [{ code: 'no-preference', label: 'Architect assigned, no faction preference — not a priority target', score: 0 }],
       needsRecon: false,
     };
   }
