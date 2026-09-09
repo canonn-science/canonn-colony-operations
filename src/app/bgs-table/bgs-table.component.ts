@@ -612,7 +612,7 @@ export class BgsTableComponent implements OnDestroy {
   protected systemNameTitle(row: BgsRow): string {
     const bodyCount = row.bodyCount !== null ? row.bodyCount.toLocaleString() : '—';
     const population = row.population !== null ? row.population.toLocaleString() : '—';
-    return `View ${row.systemName} on Inara\nBodyCount: ${bodyCount} Pop ${population}`;
+    return `View ${row.systemName} on Inara\nBody count: ${bodyCount}\nPopulation: ${population}`;
   }
 
   /**
