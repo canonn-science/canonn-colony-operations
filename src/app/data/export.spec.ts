@@ -118,6 +118,16 @@ describe('rowsToCsv', () => {
     expect(csv.split('\r\n')[1]).toContain(`"'=HYPERLINK(""https://evil.example"")"`);
   });
 
+  it('prefixes formula-like strings even when prefixed with whitespace', () => {
+    const csv = rowsToCsv([row({ systemName: '\t=SUM(1,1)' })], NOW);
+    expect(csv.split('\r\n')[1]).toContain(`"'\t=SUM(1,1)"`);
+  });
+
+  it('prefixes formula-like strings when prefixed with control characters', () => {
+    const csv = rowsToCsv([row({ systemName: '\r=SUM(1,1)' })], NOW);
+    expect(csv.split('\r\n')[1]).toContain(`"'\r=SUM(1,1)"`);
+  });
+
   it('does not alter numeric fields that start with minus when stringified', () => {
     const csv = rowsToCsv([row({ x: -12.5 })], NOW);
     const cells = csv.split('\r\n')[1].split(',');

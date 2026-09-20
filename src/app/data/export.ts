@@ -115,7 +115,7 @@ function csvField(value: string): string {
 
 /** Prefixes spreadsheet formula-like strings with an apostrophe to prevent CSV formula injection. */
 function sanitizeCsvString(value: string): string {
-  return /^[=+\-@]/.test(value) ? `'${value}` : value;
+  return /^[\u0000-\u001F\s]*[=+\-@]/.test(value) ? `'${value}` : value;
 }
 
 /** Stringifies one {@link ExportRecord} field for CSV — the Factions column collapses to a single semicolon-separated cell. */
