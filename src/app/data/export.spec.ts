@@ -82,7 +82,6 @@ describe('exportFilename', () => {
   it('embeds the date and requested extension', () => {
     expect(exportFilename('json', NOW)).toBe('canonn-colony-operations-2026-08-07.json');
     expect(exportFilename('csv', NOW)).toBe('canonn-colony-operations-2026-08-07.csv');
-    expect(exportFilename('pdf', NOW)).toBe('canonn-colony-operations-2026-08-07.pdf');
   });
 });
 

@@ -18,7 +18,6 @@
       <mat-menu #exportMenu="matMenu">
         <button mat-menu-item type="button" (click)="exportJson()">Export as JSON</button>
         <button mat-menu-item type="button" (click)="exportCsv()">Export as CSV</button>
-        <button mat-menu-item type="button" (click)="exportPdf()">Export as PDF</button>
       </mat-menu>
       @if (exportError(); as err) {
         <span class="bgs-export-error">{{ err }}</span>

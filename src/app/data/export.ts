@@ -1,8 +1,6 @@
 /**
  * Turns the table's rows into files the user can download — JSON and CSV for anyone who
- * wants to process the data themselves (issue #11), and a PDF report of the same columns
- * the table shows on screen. Pure data-shaping lives here; the PDF renderer itself is
- * loaded lazily from {@link exportRowsToPdf} so jsPDF never bloats the app's initial bundle.
+ * wants to process the data themselves (issue #11).
  */
 import { BgsRow } from '../canonn-bgs.service';
 import { computeFreshness } from './freshness';
@@ -60,7 +58,7 @@ export function toExportRecord(row: BgsRow, nowMs: number): ExportRecord {
 }
 
 /** Timestamped filename shared by every export format, e.g. `canonn-colony-operations-2026-09-20.json`. */
-export function exportFilename(extension: 'json' | 'csv' | 'pdf', nowMs: number = Date.now()): string {
+export function exportFilename(extension: 'json' | 'csv', nowMs: number = Date.now()): string {
   const date = new Date(nowMs).toISOString().slice(0, 10);
   return `canonn-colony-operations-${date}.${extension}`;
 }
@@ -136,54 +134,4 @@ export function rowsToCsv(rows: readonly BgsRow[], nowMs: number = Date.now()): 
 export function exportRowsToCsv(rows: readonly BgsRow[], nowMs: number = Date.now()): void {
   const blob = new Blob([rowsToCsv(rows, nowMs)], { type: 'text/csv' });
   downloadBlob(exportFilename('csv', nowMs), blob);
-}
-
-const PDF_COLUMNS = [
-  'System',
-  'Controlling Faction',
-  'CANO %',
-  'CDSR %',
-  'Architect',
-  'Preferred Faction',
-  'Priority',
-  'Updated',
-] as const;
-
-function pdfRow(record: ExportRecord): string[] {
-  return [
-    record.systemName,
-    record.controllingFaction ?? '—',
-    record.canonnInfluence !== null ? record.canonnInfluence.toFixed(1) : '—',
-    record.cdsrInfluence !== null ? record.cdsrInfluence.toFixed(1) : '—',
-    record.architect ?? '—',
-    record.preferredFaction ?? '—',
-    record.priorityTier,
-    record.freshnessLabel,
-  ];
-}
-
-/**
- * Exports `rows` as a PDF table report. jsPDF and its autotable plugin are dynamically
- * imported here rather than at module load, so the ~500KB PDF library only ever loads if
- * the user actually asks for a PDF.
- */
-export async function exportRowsToPdf(rows: readonly BgsRow[], nowMs: number = Date.now()): Promise<void> {
-  const [{ jsPDF }, autoTableModule] = await Promise.all([import('jspdf'), import('jspdf-autotable')]);
-  const autoTable = autoTableModule.default;
-
-  const doc = new jsPDF({ orientation: 'landscape' });
-  doc.setFontSize(14);
-  doc.text('Canonn Colony Operations', 14, 16);
-  doc.setFontSize(10);
-  doc.text(`Exported ${new Date(nowMs).toLocaleString()} — ${rows.length} system${rows.length === 1 ? '' : 's'}`, 14, 22);
-
-  autoTable(doc, {
-    startY: 27,
-    head: [[...PDF_COLUMNS]],
-    body: rows.map(row => pdfRow(toExportRecord(row, nowMs))),
-    styles: { fontSize: 8, cellPadding: 2 },
-    headStyles: { fillColor: [40, 60, 90] },
-  });
-
-  doc.save(exportFilename('pdf', nowMs));
 }
