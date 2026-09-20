@@ -4,6 +4,25 @@
       <h1>Canonn Colony Operations</h1>
       <p>Controlling factions, Canonn / Canonn Deep Space Research influence, and system architects.</p>
     </div>
+    <div class="bgs-header-actions">
+      <button
+        mat-stroked-button
+        type="button"
+        [matMenuTriggerFor]="exportMenu"
+        [disabled]="exporting()"
+        aria-label="Export the data"
+      >
+        <fa-icon [icon]="faDownload" aria-hidden="true"></fa-icon>
+        {{ exporting() ? 'Exporting…' : 'Export' }}
+      </button>
+      <mat-menu #exportMenu="matMenu">
+        <button mat-menu-item type="button" (click)="exportJson()">Export as JSON</button>
+        <button mat-menu-item type="button" (click)="exportPdf()">Export as PDF</button>
+      </mat-menu>
+      @if (exportError(); as err) {
+        <span class="bgs-export-error">{{ err }}</span>
+      }
+    </div>
     <app-canonn-logo [animating]="loading()" class="bgs-logo"></app-canonn-logo>
   </div>
 
