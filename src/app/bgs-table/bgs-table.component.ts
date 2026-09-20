@@ -7,9 +7,17 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatDialog } from '@angular/material/dialog';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
+import { MatMenuModule } from '@angular/material/menu';
 import { MatSelectModule } from '@angular/material/select';
 import { FaIconComponent } from '@fortawesome/angular-fontawesome';
-import { faCheck, faChevronLeft, faChevronRight, faCopy, faMagnifyingGlass } from '@fortawesome/free-solid-svg-icons';
+import {
+  faCheck,
+  faChevronLeft,
+  faChevronRight,
+  faCopy,
+  faDownload,
+  faMagnifyingGlass,
+} from '@fortawesome/free-solid-svg-icons';
 import {
   BgsRow,
   CANONN_FACTION,
@@ -26,6 +34,7 @@ import { CanonnLogoComponent } from '../canonn-logo/canonn-logo.component';
 import { ArchitectSubmission } from '../data/architect-form';
 import { architectNames, suggestArchitects } from '../data/architect-registry';
 import { distanceLy } from '../data/distance';
+import { exportRowsToCsv, exportRowsToJson } from '../data/export';
 import { FreshnessInfo, computeFreshness } from '../data/freshness';
 import { PriorityAssessment, computePriorityAssessment, prioritySortKey } from '../data/priority';
 import { readYourName } from '../data/your-name';
@@ -160,6 +169,7 @@ function toAnchorPoint(system: TypeaheadSystem): AnchorPoint {
     MatButtonModule,
     MatFormFieldModule,
     MatInputModule,
+    MatMenuModule,
     MatSelectModule,
     FaIconComponent,
     CanonnLogoComponent,
@@ -177,6 +187,7 @@ export class BgsTableComponent implements OnDestroy {
   protected readonly faMagnifyingGlass = faMagnifyingGlass;
   protected readonly faCopy = faCopy;
   protected readonly faCheck = faCheck;
+  protected readonly faDownload = faDownload;
   /** Both Canonn-affiliated factions — their bars are highlighted orange in the Factions chart. */
   protected readonly canonnFactionNames: ReadonlySet<string> = new Set([CANONN_FACTION, CDSR_FACTION]);
   protected readonly encodeURIComponent = encodeURIComponent;
@@ -200,6 +211,9 @@ export class BgsTableComponent implements OnDestroy {
   protected readonly errorMessage = signal<string | null>(null);
   /** Set while fetching every page for a full-dataset sort; null the rest of the time. */
   protected readonly loadProgress = signal<{ loaded: number; total: number } | null>(null);
+  /** Set while an export (which needs the full dataset, however the table is currently paging) is being prepared. */
+  protected readonly exporting = signal(false);
+  protected readonly exportError = signal<string | null>(null);
 
   protected readonly mode = signal<Mode>('paged');
 
@@ -459,6 +473,57 @@ export class BgsTableComponent implements OnDestroy {
     this.copiedSystem.set(systemName);
     clearTimeout(this.copiedResetHandle);
     this.copiedResetHandle = setTimeout(() => this.copiedSystem.set(null), 1500);
+  }
+
+  /** Exports every row matching the current quick filters (regardless of sort/page) as a JSON file. */
+  protected async exportJson(): Promise<void> {
+    const rows = await this.rowsForExport();
+    if (!rows) {
+      return;
+    }
+    try {
+      exportRowsToJson(rows, this.now());
+    } catch {
+      this.exportError.set('Failed to export data. Please try again.');
+    }
+  }
+
+  /** Exports the same rows as {@link exportJson}, as a CSV file. */
+  protected async exportCsv(): Promise<void> {
+    const rows = await this.rowsForExport();
+    if (!rows) {
+      return;
+    }
+    try {
+      exportRowsToCsv(rows, this.now());
+    } catch {
+      this.exportError.set('Failed to export data. Please try again.');
+    }
+  }
+
+  /**
+   * Every row matching the current quick filters, loading the full dataset first if the
+   * table hasn't needed it yet (e.g. still browsing the first buffered page) — an export is
+   * for "process the data yourself", so it always covers everything in scope, not just
+   * whatever page happens to be on screen. Null if the fetch failed.
+   */
+  private async rowsForExport(): Promise<BgsRow[] | null> {
+    this.exportError.set(null);
+    this.exporting.set(true);
+    try {
+      await this.ensureFullDataset();
+      const rows = this.filteredDataset();
+      if (!rows) {
+        this.exportError.set('Failed to load data to export.');
+        return null;
+      }
+      return rows;
+    } catch {
+      this.exportError.set('Failed to export data. Please try again.');
+      return null;
+    } finally {
+      this.exporting.set(false);
+    }
   }
 
   protected previousPage(): void {
