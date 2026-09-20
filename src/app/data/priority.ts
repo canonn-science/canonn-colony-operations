@@ -1,14 +1,20 @@
 /**
- * "Which systems need a Commander today": a priority score computed per row from the
- * Architect Registry's preferred faction plus the system's current influence and state.
- * Shaped like `freshness.ts` — injected clock, exported pure functions, stable reason codes
- * so specs (and the tooltip) don't depend on wording.
+ * "Which systems are worth spending effort on today": a work-priority score computed per
+ * row from the Architect Registry's preferred faction plus the system's current influence
+ * and state. Shaped like `freshness.ts` — injected clock, exported pure functions, stable
+ * reason codes so specs (and the tooltip) don't depend on wording.
+ *
+ * Work priority and data staleness are deliberately kept apart (see the feature request this
+ * implements): how old a reading is says nothing about whether the system is worth working,
+ * so `needsRecon`/`reconAgeDays` below are informational only and never feed the score.
  */
 import { BgsRow, CANONN_FACTION, CDSR_FACTION } from '../canonn-bgs.service';
 import { daysElapsed, parseUpdatedAt } from './freshness';
 
 export type PriorityTier = 'P0' | 'P1' | 'P2' | 'P3' | 'P4' | 'out-of-scope' | 'not-applicable';
 export type PriorityScope = 'in-scope' | 'assumed' | 'out-of-scope' | 'no-preference';
+/** Crossing an unplanned-expansion threshold — a warning badge the table renders; never a scoring input. */
+export type ExpansionRisk = 'none' | 'watch' | 'active';
 
 /** One applicable trigger, already weighted — the tooltip lists these, highest first. */
 export interface PriorityReason {
@@ -22,12 +28,15 @@ export interface PriorityAssessment {
   tier: PriorityTier;
   scope: PriorityScope;
   leadFaction: string | null;
-  /** Null for out-of-scope — sorts last via the table's existing null-last convention. */
+  /** Null for out-of-scope/not-applicable with no live conflict — sorts last via the table's existing null-last convention. */
   score: number | null;
   /** Every applicable trigger, highest-scoring first. */
   reasons: PriorityReason[];
-  /** True once a stale reading's recon bonus applied — "fly there", not "grind influence". */
+  /** Whether the last reading is old enough that it shouldn't be trusted at face value. Informational only — never affects {@link score}. */
   needsRecon: boolean;
+  /** Whole days since the last reading; null if unknown. */
+  reconAgeDays: number | null;
+  expansionRisk: ExpansionRisk;
 }
 
 const TIER_THRESHOLDS: readonly { tier: PriorityTier; min: number }[] = [
@@ -65,22 +74,59 @@ export function factionCountWeight(factionCount: number): number {
   return 1.0;
 }
 
+/** Days-since-update at or above which a reading is old enough not to trust at face value; null (no timestamp at all) always counts as needing recon. */
+const NEEDS_RECON_DAYS = 2;
+
+/** Whether a reading is stale enough to flag — purely informational, see the module doc above. */
+export function needsRecon(daysSinceUpdate: number | null): boolean {
+  return daysSinceUpdate === null || daysSinceUpdate >= NEEDS_RECON_DAYS;
+}
+
+const EXPANSION_ACTIVE_THRESHOLD = 75;
+const EXPANSION_WATCH_THRESHOLD = 65;
+
+/** Our own (Canonn or CDSR, whichever is higher) influence crossing an unplanned-expansion threshold — badge-only, see the module doc above. */
+export function expansionRiskFor(row: BgsRow): ExpansionRisk {
+  const ours = Math.max(row.canonnInfluence ?? -Infinity, row.cdsrInfluence ?? -Infinity);
+  if (ours >= EXPANSION_ACTIVE_THRESHOLD) {
+    return 'active';
+  }
+  if (ours >= EXPANSION_WATCH_THRESHOLD) {
+    return 'watch';
+  }
+  return 'none';
+}
+
 /**
- * A stale reading isn't low-priority, it's *unknown* — proportional to what the last reading
- * already scored, so a stale-but-comfortable system stays quiet while a stale-but-troubled
- * one climbs. Never lets a stale reading outrank a current, genuinely worse one.
+ * BGS effort scales with the log of population — a percentage point of influence costs
+ * proportionally more to move in a billion-population system than a thousand-population one.
+ * Floors at 0.025 so a huge system's gap is heavily, not infinitely, discounted rather than
+ * simply excluded.
  */
-export function reconFactor(daysSinceUpdate: number | null): number {
-  if (daysSinceUpdate === null || daysSinceUpdate >= 28) {
-    return 0.3;
+export function populationCostFactor(population: number | null): number {
+  if (population === null || population <= 0) {
+    return 1;
   }
-  if (daysSinceUpdate >= 7) {
-    return 0.2;
-  }
-  if (daysSinceUpdate >= 2) {
-    return 0.1;
-  }
-  return 0;
+  return Math.max(0.025, 1 - Math.log10(population) / 10.875);
+}
+
+/** The population-weighted cost of closing a percentage-point gap — the same raw gap costs more in a bigger system. */
+export function costToClose(gapPoints: number, population: number | null): number {
+  return gapPoints / populationCostFactor(population);
+}
+
+const GAP_SCORE_CAP = 80;
+const GAP_SCORE_FLOOR = 5;
+
+/**
+ * Maps a population-weighted gap to a 0-100 work-priority contribution: a system level with
+ * the leader (gap 0) is close to flipping control and scores near the top; a system whose gap
+ * is expensive to close (a wide gap, a huge population, or both) is floored at the same
+ * "nothing applicable" baseline other quiet systems get, rather than going negative.
+ */
+function gapToLeaderScore(gapPoints: number, population: number | null): number {
+  const cost = costToClose(Math.max(0, gapPoints), population);
+  return Math.min(GAP_SCORE_CAP, Math.max(GAP_SCORE_FLOOR, GAP_SCORE_CAP - cost));
 }
 
 /** Case- and whitespace-insensitive key, since the Preferred Faction answer is free text. */
@@ -148,10 +194,13 @@ function influenceOf(row: BgsRow, faction: string | null): number | null {
   return null;
 }
 
-/** Every trigger below `scope`'s own scope gate, in FR-4's table order. */
-function baseReasons(row: BgsRow, leadFaction: string, leadInfluence: number | null, weight: number, scope: PriorityScope): PriorityReason[] {
+/**
+ * War/election/retreat triggers involving Canonn or CDSR — computed independently of scope
+ * (FR-4's lead-faction gate) so a live, time-limited conflict is never hidden purely for want
+ * of a recorded preferred faction. See {@link computePriorityAssessment}.
+ */
+function conflictReasons(row: BgsRow): PriorityReason[] {
   const reasons: PriorityReason[] = [];
-
   if (row.retreatState === 'active' || row.retreatState === 'pending') {
     // Never weighted — it's the top of the list by construction.
     reasons.push({ code: 'retreat', label: 'Retreat in progress', score: 100 });
@@ -168,6 +217,13 @@ function baseReasons(row: BgsRow, leadFaction: string, leadInfluence: number | n
   if (row.electionState === 'pending') {
     reasons.push({ code: 'election-pending', label: 'Election pending', score: 85 });
   }
+  return reasons;
+}
+
+/** Every trigger below `scope`'s own scope gate, in FR-4's table order — conflict triggers plus everything that needs a confirmed or assumed lead faction. */
+function baseReasons(row: BgsRow, leadFaction: string, leadInfluence: number | null, weight: number, scope: PriorityScope): PriorityReason[] {
+  const reasons: PriorityReason[] = conflictReasons(row);
+
   if (leadInfluence !== null && leadInfluence < 4) {
     reasons.push({ code: 'lead-below-4', label: 'Lead faction below 4% influence', score: 85 * weight });
   }
@@ -226,13 +282,18 @@ function baseReasons(row: BgsRow, leadFaction: string, leadInfluence: number | n
     reasons.push({ code: 'lead-below-10', label: 'Lead faction below 10% influence', score: 50 * weight });
   }
 
+  // The primary "is this worth taking" signal: not the raw gap alone, but how expensive that
+  // gap is to close given the system's population (see costToClose). A system level with the
+  // leader (gap 0) scores near the top of the range; a wide gap in a huge population is
+  // floored at the same baseline a quiet system gets, rather than inverting the ranking the
+  // way flat percentage thresholds used to (see the feature request this implements).
   if (!isController && leadInfluence !== null && controllerInfluence !== null) {
     const gap = controllerInfluence - leadInfluence;
-    if (gap < 10) {
-      reasons.push({ code: 'should-control-under-10', label: 'Should control, under 10% behind the controller', score: 40 });
-    } else {
-      reasons.push({ code: 'should-control-10-plus', label: 'Should control, 10%+ behind', score: 25 });
-    }
+    reasons.push({
+      code: 'gap-to-leader',
+      label: `Should control — ${gap.toFixed(1)}% behind the leader (population-weighted)`,
+      score: gapToLeaderScore(gap, row.population),
+    });
   }
 
   if (isController && leadInfluence !== null && strongestRival !== null) {
@@ -242,36 +303,53 @@ function baseReasons(row: BgsRow, leadFaction: string, leadInfluence: number | n
     }
   }
 
-  if (leadInfluence !== null && leadInfluence > 75 && (row.expansionState === 'active' || row.expansionState === 'pending')) {
-    reasons.push({ code: 'expansion-unwanted', label: 'Above 75% influence, expansion unwanted', score: 25 });
-  }
-
   return reasons;
 }
 
 /** Computes the full priority assessment for one row. `nowMs` is injectable, for tests. */
 export function computePriorityAssessment(row: BgsRow, nowMs: number = Date.now()): PriorityAssessment {
   const { scope, leadFaction } = resolveScope(row);
+  const expansionRisk = expansionRiskFor(row);
 
-  if (scope === 'out-of-scope') {
+  if (scope === 'out-of-scope' || scope === 'no-preference') {
+    // A live war/election is time-limited and shouldn't be hidden purely for want of a
+    // recorded preferred faction (FR: "surface active conflicts regardless of tier") — so
+    // check for one before falling back to the scope's usual null-score exclusion.
+    const conflicts = conflictReasons(row).sort((a, b) => b.score - a.score);
+
+    if (conflicts.length === 0) {
+      const scopeReason: PriorityReason =
+        scope === 'out-of-scope'
+          ? { code: 'out-of-scope', label: `Preferred faction is ${row.preferredFaction} — hands off`, score: 0 }
+          : { code: 'no-preference', label: 'Architect assigned, no faction preference — not a priority target', score: 0 };
+      return {
+        tier: scope === 'out-of-scope' ? 'out-of-scope' : 'not-applicable',
+        scope,
+        leadFaction: null,
+        score: null,
+        reasons: [scopeReason],
+        needsRecon: false,
+        reconAgeDays: null,
+        expansionRisk,
+      };
+    }
+
+    const scopeReason: PriorityReason =
+      scope === 'out-of-scope'
+        ? { code: 'out-of-scope', label: `Preferred faction is ${row.preferredFaction} — otherwise hands off`, score: 0 }
+        : { code: 'no-preference', label: 'Architect assigned, no faction preference otherwise', score: 0 };
+    const updatedAtMs = parseUpdatedAt(row.updatedAt);
+    const reconAgeDays = updatedAtMs === null ? null : daysElapsed(updatedAtMs, nowMs);
+    const score = conflicts[0].score;
     return {
-      tier: 'out-of-scope',
+      tier: deriveTier(score),
       scope,
       leadFaction: null,
-      score: null,
-      reasons: [{ code: 'out-of-scope', label: `Preferred faction is ${row.preferredFaction} — hands off`, score: 0 }],
-      needsRecon: false,
-    };
-  }
-
-  if (scope === 'no-preference') {
-    return {
-      tier: 'not-applicable',
-      scope,
-      leadFaction: null,
-      score: null,
-      reasons: [{ code: 'no-preference', label: 'Architect assigned, no faction preference — not a priority target', score: 0 }],
-      needsRecon: false,
+      score,
+      reasons: [...conflicts, scopeReason],
+      needsRecon: needsRecon(reconAgeDays),
+      reconAgeDays,
+      expansionRisk,
     };
   }
 
@@ -281,26 +359,26 @@ export function computePriorityAssessment(row: BgsRow, nowMs: number = Date.now(
   let reasons: PriorityReason[] = leadFaction ? baseReasons(row, leadFaction, leadInfluence, weight, scope) : [];
   if (scope === 'assumed') {
     // Never rank a push for control off an assumption nobody has confirmed with the architect.
-    reasons = reasons.filter(r => r.code !== 'should-control-under-10' && r.code !== 'should-control-10-plus');
+    reasons = reasons.filter(r => r.code !== 'gap-to-leader');
   }
   if (reasons.length === 0) {
     reasons = [{ code: 'none', label: 'Nothing applicable', score: 5 }];
   }
   reasons.sort((a, b) => b.score - a.score);
 
-  const baseScore = reasons[0].score;
+  const score = reasons[0].score;
   const updatedAtMs = parseUpdatedAt(row.updatedAt);
-  const daysSinceUpdate = updatedAtMs === null ? null : daysElapsed(updatedAtMs, nowMs);
-  const factor = reconFactor(daysSinceUpdate);
-  const finalScore = Math.min(100, baseScore + baseScore * factor);
+  const reconAgeDays = updatedAtMs === null ? null : daysElapsed(updatedAtMs, nowMs);
 
   return {
-    tier: deriveTier(finalScore),
+    tier: deriveTier(score),
     scope,
     leadFaction,
-    score: finalScore,
+    score,
     reasons,
-    needsRecon: factor > 0,
+    needsRecon: needsRecon(reconAgeDays),
+    reconAgeDays,
+    expansionRisk,
   };
 }
 
@@ -308,8 +386,8 @@ export function computePriorityAssessment(row: BgsRow, nowMs: number = Date.now(
  * The sort key for the Priority column. A confirmed lead (in-scope: the Architect Registry
  * names Canonn or CDSR) always outranks an assumed one, regardless of score — an assumed
  * lead is a guess, and shouldn't out-sort a system we actually know we're responsible for.
- * Out-of-scope stays null, sorting last either direction via the table's existing
- * null-last convention (see `compareColumnValues`).
+ * Out-of-scope/not-applicable rows with no live conflict stay null, sorting last either
+ * direction via the table's existing null-last convention (see `compareColumnValues`).
  */
 export function prioritySortKey(assessment: PriorityAssessment): number | null {
   if (assessment.score === null) {

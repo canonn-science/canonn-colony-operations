@@ -431,6 +431,15 @@
                       {{ priority.tier === 'out-of-scope' ? '⛔' : priority.tier }}
                     </span>
                   }
+                  @if (priority.expansionRisk !== 'none') {
+                    <span
+                      class="bgs-expansion-badge"
+                      [class.bgs-expansion-badge--active]="priority.expansionRisk === 'active'"
+                      [title]="expansionRiskTitle(priority)"
+                      role="img"
+                      [attr.aria-label]="expansionRiskTitle(priority)"
+                    >📈</span>
+                  }
                 </td>
                 <td class="bgs-col-wrap">{{ row.controllingFaction ?? '—' }}</td>
                 <td class="bgs-col-influence" [class.bgs-influence--present]="row.canonnInfluence !== null">

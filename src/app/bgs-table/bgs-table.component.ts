@@ -654,18 +654,25 @@ export class BgsTableComponent implements OnDestroy {
     return computeFreshness(row.updatedAt, this.now());
   }
 
-  /** The Priority column's badge contents for a row, recomputed as {@link now} ticks forward (its recon bonus depends on elapsed time). */
+  /** The Priority column's badge contents for a row, recomputed as {@link now} ticks forward (its recon-age flag depends on elapsed time, though it no longer affects the score itself). */
   protected priorityFor(row: BgsRow): PriorityAssessment {
     return computePriorityAssessment(row, this.now());
   }
 
-  /** Hover text for the Priority pill: the reasons list, plus a refresh request when the reading is stale enough that a recon bonus applied. */
+  /** Hover text for the Priority pill: the reasons list, plus a refresh request when the reading is stale — informational, since staleness no longer changes the score. */
   protected priorityTitle(priority: PriorityAssessment): string {
     if (priority.tier === 'out-of-scope') {
       return 'Do not work the BGS in this system';
     }
     const reasons = priority.reasons.map(r => r.label).join('\n');
     return priority.needsRecon ? `${reasons}\nStale reading — please fly through this system to refresh it.` : reasons;
+  }
+
+  /** Hover text for the Expansion risk badge. */
+  protected expansionRiskTitle(priority: PriorityAssessment): string {
+    return priority.expansionRisk === 'active'
+      ? 'Above 75% influence — unplanned expansion risk. Stop pushing influence here.'
+      : 'Above 65% influence — approaching unplanned expansion. Watch this system.';
   }
 
   /** Accessible text equivalent of the Factions mini bar chart, for screen readers. */
