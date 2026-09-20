@@ -1,8 +1,8 @@
 /**
- * Turns the table's rows into files the user can download — JSON for anyone who wants to
- * process the data themselves (issue #11), and a PDF report of the same columns the table
- * shows on screen. Pure data-shaping lives here; the PDF renderer itself is loaded lazily
- * from {@link exportRowsToPdf} so jsPDF never bloats the app's initial bundle.
+ * Turns the table's rows into files the user can download — JSON and CSV for anyone who
+ * wants to process the data themselves (issue #11), and a PDF report of the same columns
+ * the table shows on screen. Pure data-shaping lives here; the PDF renderer itself is
+ * loaded lazily from {@link exportRowsToPdf} so jsPDF never bloats the app's initial bundle.
  */
 import { BgsRow } from '../canonn-bgs.service';
 import { computeFreshness } from './freshness';
@@ -59,8 +59,8 @@ export function toExportRecord(row: BgsRow, nowMs: number): ExportRecord {
   };
 }
 
-/** Timestamped filename shared by both export formats, e.g. `canonn-colony-operations-2026-09-20.json`. */
-export function exportFilename(extension: 'json' | 'pdf', nowMs: number = Date.now()): string {
+/** Timestamped filename shared by every export format, e.g. `canonn-colony-operations-2026-09-20.json`. */
+export function exportFilename(extension: 'json' | 'csv' | 'pdf', nowMs: number = Date.now()): string {
   const date = new Date(nowMs).toISOString().slice(0, 10);
   return `canonn-colony-operations-${date}.${extension}`;
 }
@@ -83,6 +83,59 @@ export function exportRowsToJson(rows: readonly BgsRow[], nowMs: number = Date.n
   const records = rows.map(row => toExportRecord(row, nowMs));
   const blob = new Blob([JSON.stringify(records, null, 2)], { type: 'application/json' });
   downloadBlob(exportFilename('json', nowMs), blob);
+}
+
+const CSV_COLUMNS: readonly (keyof ExportRecord)[] = [
+  'systemName',
+  'controllingFaction',
+  'canonnInfluence',
+  'cdsrInfluence',
+  'architect',
+  'preferredFaction',
+  'factions',
+  'warState',
+  'electionState',
+  'retreatState',
+  'priorityTier',
+  'priorityScore',
+  'needsRecon',
+  'bodyCount',
+  'population',
+  'x',
+  'y',
+  'z',
+  'updatedAt',
+  'freshnessLabel',
+];
+
+/** Quotes a CSV field only when it needs it (contains a comma, quote, or newline), per RFC 4180. */
+function csvField(value: string): string {
+  return /[",\n\r]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
+}
+
+/** Stringifies one {@link ExportRecord} field for CSV — the Factions column collapses to a single semicolon-separated cell. */
+function csvValue(record: ExportRecord, column: keyof ExportRecord): string {
+  if (column === 'factions') {
+    return record.factions.map(f => `${f.name}: ${f.influencePercent.toFixed(1)}%`).join('; ');
+  }
+  const value = record[column];
+  return value === null ? '' : String(value);
+}
+
+/** Builds the CSV text for `rows` — one column per {@link ExportRecord} field, Factions flattened to a single cell. Pure, so it's testable without a DOM. */
+export function rowsToCsv(rows: readonly BgsRow[], nowMs: number = Date.now()): string {
+  const records = rows.map(row => toExportRecord(row, nowMs));
+  const lines = [
+    CSV_COLUMNS.join(','),
+    ...records.map(record => CSV_COLUMNS.map(column => csvField(csvValue(record, column))).join(',')),
+  ];
+  return lines.join('\r\n');
+}
+
+/** Exports `rows` as a CSV file. */
+export function exportRowsToCsv(rows: readonly BgsRow[], nowMs: number = Date.now()): void {
+  const blob = new Blob([rowsToCsv(rows, nowMs)], { type: 'text/csv' });
+  downloadBlob(exportFilename('csv', nowMs), blob);
 }
 
 const PDF_COLUMNS = [

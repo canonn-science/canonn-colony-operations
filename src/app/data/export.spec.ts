@@ -1,5 +1,5 @@
 import { BgsRow } from '../canonn-bgs.service';
-import { exportFilename, toExportRecord } from './export';
+import { exportFilename, rowsToCsv, toExportRecord } from './export';
 
 /** A minimal, fully-populated row — tests override only the fields they care about. */
 function row(overrides: Partial<BgsRow> = {}): BgsRow {
@@ -81,6 +81,43 @@ describe('toExportRecord', () => {
 describe('exportFilename', () => {
   it('embeds the date and requested extension', () => {
     expect(exportFilename('json', NOW)).toBe('canonn-colony-operations-2026-08-07.json');
+    expect(exportFilename('csv', NOW)).toBe('canonn-colony-operations-2026-08-07.csv');
     expect(exportFilename('pdf', NOW)).toBe('canonn-colony-operations-2026-08-07.pdf');
+  });
+});
+
+describe('rowsToCsv', () => {
+  it('emits a header row plus one row per system, with a semicolon-joined Factions cell', () => {
+    const csv = rowsToCsv(
+      [
+        row({
+          systemName: 'Varati',
+          controllingFaction: 'Canonn',
+          canonnInfluence: 42.5,
+          factions: [
+            { name: 'Canonn', influencePercent: 42.5 },
+            { name: 'Some Other Faction', influencePercent: 12.3 },
+          ],
+        }),
+      ],
+      NOW,
+    );
+    const lines = csv.split('\r\n');
+    expect(lines[0]).toBe(
+      'systemName,controllingFaction,canonnInfluence,cdsrInfluence,architect,preferredFaction,factions,warState,electionState,retreatState,priorityTier,priorityScore,needsRecon,bodyCount,population,x,y,z,updatedAt,freshnessLabel',
+    );
+    expect(lines[1]).toContain('Varati,Canonn,42.5,,,,Canonn: 42.5%; Some Other Faction: 12.3%,');
+  });
+
+  it('quotes fields containing a comma and escapes embedded quotes', () => {
+    const csv = rowsToCsv([row({ systemName: 'A, "Tricky" System' })], NOW);
+    expect(csv.split('\r\n')[1]).toContain('"A, ""Tricky"" System"');
+  });
+
+  it('renders null fields as empty cells', () => {
+    const csv = rowsToCsv([row()], NOW);
+    const cells = csv.split('\r\n')[1].split(',');
+    expect(cells[1]).toBe(''); // controllingFaction
+    expect(cells[2]).toBe(''); // canonnInfluence
   });
 });

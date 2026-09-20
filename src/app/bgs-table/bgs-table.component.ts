@@ -34,7 +34,7 @@ import { CanonnLogoComponent } from '../canonn-logo/canonn-logo.component';
 import { ArchitectSubmission } from '../data/architect-form';
 import { architectNames, suggestArchitects } from '../data/architect-registry';
 import { distanceLy } from '../data/distance';
-import { exportRowsToJson, exportRowsToPdf } from '../data/export';
+import { exportRowsToCsv, exportRowsToJson, exportRowsToPdf } from '../data/export';
 import { FreshnessInfo, computeFreshness } from '../data/freshness';
 import { PriorityAssessment, computePriorityAssessment, prioritySortKey } from '../data/priority';
 import { readYourName } from '../data/your-name';
@@ -483,6 +483,19 @@ export class BgsTableComponent implements OnDestroy {
     }
     try {
       exportRowsToJson(rows, this.now());
+    } catch {
+      this.exportError.set('Failed to export data. Please try again.');
+    }
+  }
+
+  /** Exports the same rows as {@link exportJson}, as a CSV file. */
+  protected async exportCsv(): Promise<void> {
+    const rows = await this.rowsForExport();
+    if (!rows) {
+      return;
+    }
+    try {
+      exportRowsToCsv(rows, this.now());
     } catch {
       this.exportError.set('Failed to export data. Please try again.');
     }
