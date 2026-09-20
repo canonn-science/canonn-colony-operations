@@ -20,7 +20,7 @@
         <button mat-menu-item type="button" (click)="exportCsv()">Export as CSV</button>
       </mat-menu>
       @if (exportError(); as err) {
-        <span class="bgs-export-error">{{ err }}</span>
+        <span class="bgs-export-error" role="status" aria-live="polite">{{ err }}</span>
       }
     </div>
     <app-canonn-logo [animating]="loading()" class="bgs-logo"></app-canonn-logo>

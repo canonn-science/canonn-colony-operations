@@ -113,6 +113,17 @@ describe('rowsToCsv', () => {
     expect(csv.split('\r\n')[1]).toContain('"A, ""Tricky"" System"');
   });
 
+  it('prefixes formula-like string fields to prevent spreadsheet formula injection', () => {
+    const csv = rowsToCsv([row({ systemName: '=HYPERLINK("https://evil.example")' })], NOW);
+    expect(csv.split('\r\n')[1]).toContain(`"'=HYPERLINK(""https://evil.example"")"`);
+  });
+
+  it('does not alter numeric fields that start with minus when stringified', () => {
+    const csv = rowsToCsv([row({ x: -12.5 })], NOW);
+    const cells = csv.split('\r\n')[1].split(',');
+    expect(cells[15]).toBe('-12.5');
+  });
+
   it('renders null fields as empty cells', () => {
     const csv = rowsToCsv([row()], NOW);
     const cells = csv.split('\r\n')[1].split(',');

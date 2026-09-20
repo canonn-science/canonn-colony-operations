@@ -66,13 +66,15 @@ export function exportFilename(extension: 'json' | 'csv', nowMs: number = Date.n
 /** Triggers a browser download of `content` under `filename`. */
 function downloadBlob(filename: string, blob: Blob): void {
   const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
   try {
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
     link.click();
   } finally {
-    URL.revokeObjectURL(url);
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
   }
 }
 
@@ -111,13 +113,21 @@ function csvField(value: string): string {
   return /[",\n\r]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
 }
 
+/** Prefixes spreadsheet formula-like strings with an apostrophe to prevent CSV formula injection. */
+function sanitizeCsvString(value: string): string {
+  return /^[=+\-@]/.test(value) ? `'${value}` : value;
+}
+
 /** Stringifies one {@link ExportRecord} field for CSV — the Factions column collapses to a single semicolon-separated cell. */
 function csvValue(record: ExportRecord, column: keyof ExportRecord): string {
   if (column === 'factions') {
-    return record.factions.map(f => `${f.name}: ${f.influencePercent.toFixed(1)}%`).join('; ');
+    return sanitizeCsvString(record.factions.map(f => `${f.name}: ${f.influencePercent.toFixed(1)}%`).join('; '));
   }
   const value = record[column];
-  return value === null ? '' : String(value);
+  if (value === null) {
+    return '';
+  }
+  return typeof value === 'string' ? sanitizeCsvString(value) : String(value);
 }
 
 /** Builds the CSV text for `rows` — one column per {@link ExportRecord} field, Factions flattened to a single cell. Pure, so it's testable without a DOM. */
