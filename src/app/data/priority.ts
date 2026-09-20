@@ -13,8 +13,6 @@ import { daysElapsed, parseUpdatedAt } from './freshness';
 
 export type PriorityTier = 'P0' | 'P1' | 'P2' | 'P3' | 'P4' | 'out-of-scope' | 'not-applicable';
 export type PriorityScope = 'in-scope' | 'assumed' | 'out-of-scope' | 'no-preference';
-/** Crossing an unplanned-expansion threshold — a warning badge the table renders; never a scoring input. */
-export type ExpansionRisk = 'none' | 'watch' | 'active';
 
 /** One applicable trigger, already weighted — the tooltip lists these, highest first. */
 export interface PriorityReason {
@@ -36,7 +34,6 @@ export interface PriorityAssessment {
   needsRecon: boolean;
   /** Whole days since the last reading; null if unknown. */
   reconAgeDays: number | null;
-  expansionRisk: ExpansionRisk;
 }
 
 const TIER_THRESHOLDS: readonly { tier: PriorityTier; min: number }[] = [
@@ -80,21 +77,6 @@ const NEEDS_RECON_DAYS = 2;
 /** Whether a reading is stale enough to flag — purely informational, see the module doc above. */
 export function needsRecon(daysSinceUpdate: number | null): boolean {
   return daysSinceUpdate === null || daysSinceUpdate >= NEEDS_RECON_DAYS;
-}
-
-const EXPANSION_ACTIVE_THRESHOLD = 75;
-const EXPANSION_WATCH_THRESHOLD = 65;
-
-/** Our own (Canonn or CDSR, whichever is higher) influence crossing an unplanned-expansion threshold — badge-only, see the module doc above. */
-export function expansionRiskFor(row: BgsRow): ExpansionRisk {
-  const ours = Math.max(row.canonnInfluence ?? -Infinity, row.cdsrInfluence ?? -Infinity);
-  if (ours >= EXPANSION_ACTIVE_THRESHOLD) {
-    return 'active';
-  }
-  if (ours >= EXPANSION_WATCH_THRESHOLD) {
-    return 'watch';
-  }
-  return 'none';
 }
 
 /**
@@ -257,17 +239,18 @@ function baseReasons(row: BgsRow, leadFaction: string, leadInfluence: number | n
     reasons.push({ code: 'lead-lowest-ranked', label: 'Lead faction is lowest-ranked in the system', score: 65 * weight });
   }
 
-  // Confirmed systems only (never off an assumed lead) — being the weakest faction present
-  // is a call to action to build up and take control, independent of the retreat-risk framing
-  // above (so it isn't gated by the same "below 10%" floor, and isn't weighted by faction
-  // count — this is about strategic priority in a system we're committed to, not risk of
-  // falling below the 2.5% retreat threshold). Restricted to 4+ factions: in a 3-faction
-  // system there are only two rivals to beat, so "lowest of three" isn't a meaningful call
-  // to action on its own.
-  if (scope === 'in-scope' && leadRankIndex !== -1 && leadRankIndex === row.factions.length - 1 && row.factions.length > 3) {
+  // Being the weakest faction present in a system with 4+ factions is a withdrawal-risk
+  // signal regardless of whether the lead is confirmed or assumed: a stale reading can't
+  // rule out that last place has already dropped further, so it's treated as elevated risk
+  // rather than waiting for a confirmed influence number to cross the 2.5% retreat floor.
+  // Not gated by the same "below 10%" floor or faction-count weighting as the influence
+  // triggers above, since this is about rank position itself, not a raw influence reading.
+  // Restricted to 4+ factions: in a 3-faction system there are only two rivals to beat, so
+  // "lowest of three" isn't a meaningful risk signal on its own.
+  if (leadRankIndex !== -1 && leadRankIndex === row.factions.length - 1 && row.factions.length > 3) {
     reasons.push({
-      code: 'confirmed-lead-lowest-should-control',
-      label: 'Confirmed system — our faction is weakest here; prioritise taking control',
+      code: 'lead-lowest-should-control',
+      label: 'Our faction is weakest here (4+ factions) — elevated withdrawal risk; prioritise',
       score: 60,
     });
   }
@@ -309,7 +292,6 @@ function baseReasons(row: BgsRow, leadFaction: string, leadInfluence: number | n
 /** Computes the full priority assessment for one row. `nowMs` is injectable, for tests. */
 export function computePriorityAssessment(row: BgsRow, nowMs: number = Date.now()): PriorityAssessment {
   const { scope, leadFaction } = resolveScope(row);
-  const expansionRisk = expansionRiskFor(row);
 
   if (scope === 'out-of-scope' || scope === 'no-preference') {
     // A live war/election is time-limited and shouldn't be hidden purely for want of a
@@ -330,7 +312,6 @@ export function computePriorityAssessment(row: BgsRow, nowMs: number = Date.now(
         reasons: [scopeReason],
         needsRecon: false,
         reconAgeDays: null,
-        expansionRisk,
       };
     }
 
@@ -349,7 +330,6 @@ export function computePriorityAssessment(row: BgsRow, nowMs: number = Date.now(
       reasons: [...conflicts, scopeReason],
       needsRecon: needsRecon(reconAgeDays),
       reconAgeDays,
-      expansionRisk,
     };
   }
 
@@ -378,7 +358,6 @@ export function computePriorityAssessment(row: BgsRow, nowMs: number = Date.now(
     reasons,
     needsRecon: needsRecon(reconAgeDays),
     reconAgeDays,
-    expansionRisk,
   };
 }
 

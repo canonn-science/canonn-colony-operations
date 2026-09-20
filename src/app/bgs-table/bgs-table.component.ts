@@ -668,13 +668,6 @@ export class BgsTableComponent implements OnDestroy {
     return priority.needsRecon ? `${reasons}\nStale reading — please fly through this system to refresh it.` : reasons;
   }
 
-  /** Hover text for the Expansion risk badge. */
-  protected expansionRiskTitle(priority: PriorityAssessment): string {
-    return priority.expansionRisk === 'active'
-      ? 'Above 75% influence — unplanned expansion risk. Stop pushing influence here.'
-      : 'Above 65% influence — approaching unplanned expansion. Watch this system.';
-  }
-
   /** Accessible text equivalent of the Factions mini bar chart, for screen readers. */
   protected factionsSummary(row: BgsRow): string {
     return row.factions.map(f => `${f.name}: ${f.influencePercent.toFixed(1)}%`).join(', ');

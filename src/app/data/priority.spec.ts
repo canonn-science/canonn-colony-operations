@@ -3,7 +3,6 @@ import {
   computePriorityAssessment,
   costToClose,
   deriveTier,
-  expansionRiskFor,
   factionCountWeight,
   needsRecon,
   populationCostFactor,
@@ -179,27 +178,6 @@ describe('costToClose', () => {
   });
 });
 
-describe('expansionRiskFor', () => {
-  it('is "none" below 65% influence', () => {
-    expect(expansionRiskFor(row({ canonnInfluence: 64.9 }))).toBe('none');
-    expect(expansionRiskFor(row())).toBe('none');
-  });
-
-  it('is "watch" from 65% up to just under 75%', () => {
-    expect(expansionRiskFor(row({ canonnInfluence: 65 }))).toBe('watch');
-    expect(expansionRiskFor(row({ cdsrInfluence: 74.9 }))).toBe('watch');
-  });
-
-  it('is "active" at 75% and above', () => {
-    expect(expansionRiskFor(row({ canonnInfluence: 75 }))).toBe('active');
-    expect(expansionRiskFor(row({ cdsrInfluence: 90 }))).toBe('active');
-  });
-
-  it('uses whichever of Canonn/CDSR is higher', () => {
-    expect(expansionRiskFor(row({ canonnInfluence: 10, cdsrInfluence: 80 }))).toBe('active');
-  });
-});
-
 describe('computePriorityAssessment', () => {
   const NOW = Date.parse('2026-09-09T12:00:00Z');
   const current = '2026-09-09 11:00:00+00'; // keeps needsRecon false, isolating the trigger under test.
@@ -307,7 +285,7 @@ describe('computePriorityAssessment', () => {
     );
     expect(healthyButLast.scope).toBe('assumed');
     expect(healthyButLast.reasons.some(r => r.code === 'lead-lowest-ranked')).toBe(false);
-    expect(healthyButLast.reasons.some(r => r.code === 'confirmed-lead-lowest-should-control')).toBe(false);
+    expect(healthyButLast.reasons.some(r => r.code === 'lead-lowest-should-control')).toBe(false);
     expect(healthyButLast.score).toBe(5);
 
     const quietCrowded = computePriorityAssessment(
@@ -345,8 +323,27 @@ describe('computePriorityAssessment', () => {
       NOW,
     );
     expect(confirmedButLast.scope).toBe('in-scope');
-    expect(confirmedButLast.reasons[0]).toMatchObject({ code: 'confirmed-lead-lowest-should-control', score: 60 });
+    expect(confirmedButLast.reasons[0]).toMatchObject({ code: 'lead-lowest-should-control', score: 60 });
     expect(confirmedButLast.score).toBe(60);
+  });
+
+  it('also prioritises last place in an assumed (unconfirmed) system of 4+ factions — withdrawal risk applies whether or not the preference is confirmed', () => {
+    const assumedButLast = computePriorityAssessment(
+      row({
+        canonnInfluence: 20,
+        factions: [
+          { name: 'Rival A', influencePercent: 30 },
+          { name: 'Rival B', influencePercent: 28 },
+          { name: 'Rival C', influencePercent: 22 },
+          { name: 'Canonn', influencePercent: 20 },
+        ],
+        updatedAt: current,
+      }),
+      NOW,
+    );
+    expect(assumedButLast.scope).toBe('assumed');
+    expect(assumedButLast.reasons[0]).toMatchObject({ code: 'lead-lowest-should-control', score: 60 });
+    expect(assumedButLast.score).toBe(60);
   });
 
   it('does not push for control off "lowest of three" even in a confirmed system — only 4+ factions', () => {
@@ -363,7 +360,7 @@ describe('computePriorityAssessment', () => {
       }),
       NOW,
     );
-    expect(confirmedButLastOfThree.reasons.some(r => r.code === 'confirmed-lead-lowest-should-control')).toBe(false);
+    expect(confirmedButLastOfThree.reasons.some(r => r.code === 'lead-lowest-should-control')).toBe(false);
     expect(confirmedButLastOfThree.score).toBe(5);
   });
 
@@ -522,21 +519,6 @@ describe('computePriorityAssessment', () => {
       expect(stale.needsRecon).toBe(true);
       expect(unknown.needsRecon).toBe(true);
       expect(fresh.needsRecon).toBe(false);
-    });
-  });
-
-  describe('expansionRisk', () => {
-    it('is populated even for out-of-scope/not-applicable rows, since it is informational only', () => {
-      const outOfScope = computePriorityAssessment(row({ preferredFaction: 'Varati Ring', canonnInfluence: 80 }), NOW);
-      expect(outOfScope.expansionRisk).toBe('active');
-    });
-
-    it('never appears as a scoring reason', () => {
-      const assessment = computePriorityAssessment(
-        row({ preferredFaction: 'Canonn', canonnInfluence: 95, updatedAt: current }),
-        NOW,
-      );
-      expect(assessment.reasons.some(r => r.code.includes('expansion'))).toBe(false);
     });
   });
 });
