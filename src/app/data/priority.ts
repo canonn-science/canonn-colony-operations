@@ -119,6 +119,16 @@ function factionKey(name: string): string {
 const CANONN_KEY = factionKey(CANONN_FACTION);
 const CDSR_KEY = factionKey(CDSR_FACTION);
 
+/** True only when the Architect Registry names one of our own factions explicitly — Canonn or CDSR, not an assumed lead, and not the "not a colony" default. */
+function isExplicitlyPreferred(row: BgsRow): boolean {
+  const preferred = row.preferredFaction?.trim();
+  if (!preferred) {
+    return false;
+  }
+  const key = factionKey(preferred);
+  return key === CANONN_KEY || key === CDSR_KEY;
+}
+
 /**
  * The scope gate (FR-4): whether a system is prioritised at all, and who leads it.
  *  - Preferred faction names Canonn/CDSR → in-scope, that's the lead.
@@ -240,18 +250,19 @@ function baseReasons(row: BgsRow, leadFaction: string, leadInfluence: number | n
   }
 
   // Being the weakest faction present in a system with 4+ factions is a withdrawal-risk
-  // signal regardless of whether the lead is confirmed or assumed: a stale reading can't
-  // rule out that last place has already dropped further, so it's treated as elevated risk
-  // rather than waiting for a confirmed influence number to cross the 2.5% retreat floor.
-  // Not gated by the same "below 10%" floor or faction-count weighting as the influence
-  // triggers above, since this is about rank position itself, not a raw influence reading.
-  // Restricted to 4+ factions: in a 3-faction system there are only two rivals to beat, so
-  // "lowest of three" isn't a meaningful risk signal on its own.
-  if (leadRankIndex !== -1 && leadRankIndex === row.factions.length - 1 && row.factions.length > 3) {
+  // signal — but only when the Architect Registry explicitly names one of our own factions
+  // (Canonn or CDSR) as preferred, not a guessed/assumed lead: getting a system we're
+  // actually responsible for out of danger comes before pushing anywhere else for control,
+  // so this outranks the work-priority triggers below and lands in P0. Not gated by the same
+  // "below 10%" floor or faction-count weighting as the influence triggers above, since this
+  // is about rank position itself, not a raw influence reading. Restricted to 4+ factions: in
+  // a 3-faction system there are only two rivals to beat, so "lowest of three" isn't a
+  // meaningful risk signal on its own.
+  if (isExplicitlyPreferred(row) && leadRankIndex !== -1 && leadRankIndex === row.factions.length - 1 && row.factions.length > 3) {
     reasons.push({
       code: 'lead-lowest-should-control',
-      label: 'Our faction is weakest here (4+ factions) — elevated withdrawal risk; prioritise',
-      score: 60,
+      label: 'Explicitly preferred and weakest here (4+ factions) — get to safety before pushing for control',
+      score: 90,
     });
   }
 

@@ -307,7 +307,7 @@ describe('computePriorityAssessment', () => {
     expect(healthyButLast.score).toBe(quietCrowded.score);
   });
 
-  it('prioritises taking control when our faction is weakest in a confirmed (in-scope) system of 4+ factions, even at a healthy influence', () => {
+  it('sends a Canonn-preferred system to P0 when our faction is weakest of 4+, even at a healthy influence — safety before control', () => {
     const confirmedButLast = computePriorityAssessment(
       row({
         preferredFaction: 'Canonn',
@@ -323,11 +323,33 @@ describe('computePriorityAssessment', () => {
       NOW,
     );
     expect(confirmedButLast.scope).toBe('in-scope');
-    expect(confirmedButLast.reasons[0]).toMatchObject({ code: 'lead-lowest-should-control', score: 60 });
-    expect(confirmedButLast.score).toBe(60);
+    expect(confirmedButLast.reasons[0]).toMatchObject({ code: 'lead-lowest-should-control', score: 90 });
+    expect(confirmedButLast.score).toBe(90);
+    expect(confirmedButLast.tier).toBe('P0');
   });
 
-  it('also prioritises last place in an assumed (unconfirmed) system of 4+ factions — withdrawal risk applies whether or not the preference is confirmed', () => {
+  it('also sends a CDSR-preferred system to P0 when our faction is weakest of 4+ — the trigger fires for either of our own factions', () => {
+    const cdsrButLast = computePriorityAssessment(
+      row({
+        preferredFaction: CDSR_FACTION,
+        cdsrInfluence: 20,
+        factions: [
+          { name: 'Rival A', influencePercent: 30 },
+          { name: 'Rival B', influencePercent: 28 },
+          { name: 'Rival C', influencePercent: 22 },
+          { name: CDSR_FACTION, influencePercent: 20 },
+        ],
+        updatedAt: current,
+      }),
+      NOW,
+    );
+    expect(cdsrButLast.scope).toBe('in-scope');
+    expect(cdsrButLast.reasons[0]).toMatchObject({ code: 'lead-lowest-should-control', score: 90 });
+    expect(cdsrButLast.score).toBe(90);
+    expect(cdsrButLast.tier).toBe('P0');
+  });
+
+  it('does not fire the last-place trigger in an assumed (unconfirmed) system of 4+ factions — only an explicit preference counts', () => {
     const assumedButLast = computePriorityAssessment(
       row({
         canonnInfluence: 20,
@@ -342,11 +364,11 @@ describe('computePriorityAssessment', () => {
       NOW,
     );
     expect(assumedButLast.scope).toBe('assumed');
-    expect(assumedButLast.reasons[0]).toMatchObject({ code: 'lead-lowest-should-control', score: 60 });
-    expect(assumedButLast.score).toBe(60);
+    expect(assumedButLast.reasons.some(r => r.code === 'lead-lowest-should-control')).toBe(false);
+    expect(assumedButLast.score).toBe(5);
   });
 
-  it('does not push for control off "lowest of three" even in a confirmed system — only 4+ factions', () => {
+  it('does not push for control off "lowest of three" even in a Canonn-preferred system — only 4+ factions', () => {
     const confirmedButLastOfThree = computePriorityAssessment(
       row({
         preferredFaction: 'Canonn',
