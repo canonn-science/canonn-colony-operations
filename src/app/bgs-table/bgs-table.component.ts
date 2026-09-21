@@ -654,12 +654,12 @@ export class BgsTableComponent implements OnDestroy {
     return computeFreshness(row.updatedAt, this.now());
   }
 
-  /** The Priority column's badge contents for a row, recomputed as {@link now} ticks forward (its recon bonus depends on elapsed time). */
+  /** The Priority column's badge contents for a row, recomputed as {@link now} ticks forward (its recon-age flag depends on elapsed time, though it no longer affects the score itself). */
   protected priorityFor(row: BgsRow): PriorityAssessment {
     return computePriorityAssessment(row, this.now());
   }
 
-  /** Hover text for the Priority pill: the reasons list, plus a refresh request when the reading is stale enough that a recon bonus applied. */
+  /** Hover text for the Priority pill: the reasons list, plus a refresh request when the reading is stale — informational, since staleness no longer changes the score. */
   protected priorityTitle(priority: PriorityAssessment): string {
     if (priority.tier === 'out-of-scope') {
       return 'Do not work the BGS in this system';
