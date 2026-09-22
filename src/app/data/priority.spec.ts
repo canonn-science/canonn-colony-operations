@@ -198,24 +198,57 @@ describe('computePriorityAssessment', () => {
     expect(assessment.reasons).toHaveLength(1);
   });
 
-  it('surfaces an active conflict even when the preferred faction is a third party (out-of-scope)', () => {
-    // FR: a live, time-limited war/election shouldn't be hidden purely for want of a recorded
-    // preferred faction — it must get a real tier/score, not the usual null-score exclusion.
+  it('does not surface a priority badge for an active conflict when the preferred faction is a third party (out-of-scope)', () => {
+    // A standing "hands off" agreement outranks a live war/election — it's someone else's
+    // system to work, not ours, so no badge regardless of what's happening there.
     const assessment = computePriorityAssessment(row({ preferredFaction: 'Varati Ring', warState: 'active', updatedAt: current }), NOW);
-    expect(assessment.tier).toBe('P0');
-    expect(assessment.score).toBe(95);
-    expect(assessment.reasons.some(r => r.code === 'war-active')).toBe(true);
-    expect(assessment.reasons.some(r => r.code === 'out-of-scope')).toBe(true);
+    expect(assessment.tier).toBe('out-of-scope');
+    expect(assessment.score).toBeNull();
   });
 
-  it('surfaces a pending conflict even when an architect is confirmed with no faction preference', () => {
+  it('does not surface a priority badge for a pending conflict when an architect is confirmed with no faction preference', () => {
     const assessment = computePriorityAssessment(
       row({ architect: 'Some Commander', electionState: 'pending', updatedAt: current }),
       NOW,
     );
+    expect(assessment.tier).toBe('not-applicable');
+    expect(assessment.score).toBeNull();
+  });
+
+  it('surfaces an active conflict when no architect has been assigned yet (assumed scope) — getting one assigned is urgent', () => {
+    const assessment = computePriorityAssessment(
+      row({ canonnInfluence: 50, warState: 'active', updatedAt: current }),
+      NOW,
+    );
+    expect(assessment.scope).toBe('assumed');
     expect(assessment.tier).toBe('P0');
-    expect(assessment.score).toBe(85);
-    expect(assessment.reasons.some(r => r.code === 'election-pending')).toBe(true);
+    expect(assessment.reasons.some(r => r.code === 'war-active')).toBe(true);
+  });
+
+  it('leads with "assign an architect" — not the conflict itself — when a war/election hits an assumed (architect-less) system', () => {
+    const assessment = computePriorityAssessment(
+      row({ canonnInfluence: 50, warState: 'active', updatedAt: current }),
+      NOW,
+    );
+    expect(assessment.reasons[0]).toMatchObject({ code: 'assumed-needs-architect', score: 101 });
+    expect(assessment.score).toBe(101);
+    expect(assessment.tier).toBe('P0');
+  });
+
+  it('does not add the "assign an architect" trigger for an assumed system with no live conflict', () => {
+    const assessment = computePriorityAssessment(row({ canonnInfluence: 5, updatedAt: current }), NOW);
+    expect(assessment.scope).toBe('assumed');
+    expect(assessment.reasons.some(r => r.code === 'assumed-needs-architect')).toBe(false);
+  });
+
+  it('never surfaces a priority badge for a conflict once an architect has confirmed no preference (no-preference scope)', () => {
+    const assessment = computePriorityAssessment(
+      row({ architect: 'Some Commander', canonnInfluence: 50, warState: 'active', updatedAt: current }),
+      NOW,
+    );
+    expect(assessment.scope).toBe('no-preference');
+    expect(assessment.tier).toBe('not-applicable');
+    expect(assessment.score).toBeNull();
   });
 
   it('scores an active retreat at 100 (P0), unweighted, outranking an active war', () => {
@@ -549,7 +582,7 @@ describe('prioritySortKey', () => {
   const NOW = Date.parse('2026-09-09T12:00:00Z');
   const current = '2026-09-09 11:00:00+00';
 
-  it('ranks a confirmed lead (in-scope) above an assumed one, even with a much worse score', () => {
+  it('ranks an assumed system with a live conflict above a quiet confirmed one — every badge sorts by its score', () => {
     const confirmedQuiet = computePriorityAssessment(row({ preferredFaction: 'Canonn', updatedAt: current }), NOW);
     const assumedRetreating = computePriorityAssessment(
       row({ canonnInfluence: 5, retreatState: 'active', updatedAt: current }),
@@ -557,10 +590,10 @@ describe('prioritySortKey', () => {
     );
     expect(confirmedQuiet.scope).toBe('in-scope');
     expect(assumedRetreating.scope).toBe('assumed');
-    expect(prioritySortKey(confirmedQuiet)!).toBeGreaterThan(prioritySortKey(assumedRetreating)!);
+    expect(prioritySortKey(assumedRetreating)!).toBeGreaterThan(prioritySortKey(confirmedQuiet)!);
   });
 
-  it('still orders by score within the same scope', () => {
+  it('orders by score regardless of scope', () => {
     const worse = computePriorityAssessment(row({ preferredFaction: 'Canonn', warState: 'active', updatedAt: current }), NOW);
     const better = computePriorityAssessment(row({ preferredFaction: 'Canonn', updatedAt: current }), NOW);
     expect(prioritySortKey(worse)!).toBeGreaterThan(prioritySortKey(better)!);

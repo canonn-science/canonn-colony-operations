@@ -187,9 +187,10 @@ function influenceOf(row: BgsRow, faction: string | null): number | null {
 }
 
 /**
- * War/election/retreat triggers involving Canonn or CDSR — computed independently of scope
- * (FR-4's lead-faction gate) so a live, time-limited conflict is never hidden purely for want
- * of a recorded preferred faction. See {@link computePriorityAssessment}.
+ * War/election/retreat triggers involving Canonn or CDSR. Fires for a confirmed lead
+ * (in-scope) and for an assumed one (no architect assigned yet — a live conflict there makes
+ * getting an architect assigned urgent), but never for out-of-scope or no-preference, where an
+ * architect has already looked and this isn't ours to work. See {@link computePriorityAssessment}.
  */
 function conflictReasons(row: BgsRow): PriorityReason[] {
   const reasons: PriorityReason[] = [];
@@ -300,47 +301,29 @@ function baseReasons(row: BgsRow, leadFaction: string, leadInfluence: number | n
   return reasons;
 }
 
+/** Reason codes from {@link conflictReasons}, so the "needs an architect" trigger below can detect one fired. */
+const CONFLICT_REASON_CODES = new Set(['retreat', 'war-active', 'election-active', 'war-pending', 'election-pending']);
+
 /** Computes the full priority assessment for one row. `nowMs` is injectable, for tests. */
 export function computePriorityAssessment(row: BgsRow, nowMs: number = Date.now()): PriorityAssessment {
   const { scope, leadFaction } = resolveScope(row);
 
   if (scope === 'out-of-scope' || scope === 'no-preference') {
-    // A live war/election is time-limited and shouldn't be hidden purely for want of a
-    // recorded preferred faction (FR: "surface active conflicts regardless of tier") — so
-    // check for one before falling back to the scope's usual null-score exclusion.
-    const conflicts = conflictReasons(row).sort((a, b) => b.score - a.score);
-
-    if (conflicts.length === 0) {
-      const scopeReason: PriorityReason =
-        scope === 'out-of-scope'
-          ? { code: 'out-of-scope', label: `Preferred faction is ${row.preferredFaction} — hands off`, score: 0 }
-          : { code: 'no-preference', label: 'Architect assigned, no faction preference — not a priority target', score: 0 };
-      return {
-        tier: scope === 'out-of-scope' ? 'out-of-scope' : 'not-applicable',
-        scope,
-        leadFaction: null,
-        score: null,
-        reasons: [scopeReason],
-        needsRecon: false,
-        reconAgeDays: null,
-      };
-    }
-
+    // Neither scope is ours to work — a standing "hands off" agreement or an architect who's
+    // already looked and named nobody. A live war/election there doesn't change that; it's
+    // simply not a priority target, badge or no badge.
     const scopeReason: PriorityReason =
       scope === 'out-of-scope'
-        ? { code: 'out-of-scope', label: `Preferred faction is ${row.preferredFaction} — otherwise hands off`, score: 0 }
-        : { code: 'no-preference', label: 'Architect assigned, no faction preference otherwise', score: 0 };
-    const updatedAtMs = parseUpdatedAt(row.updatedAt);
-    const reconAgeDays = updatedAtMs === null ? null : daysElapsed(updatedAtMs, nowMs);
-    const score = conflicts[0].score;
+        ? { code: 'out-of-scope', label: `Preferred faction is ${row.preferredFaction} — hands off`, score: 0 }
+        : { code: 'no-preference', label: 'Architect assigned, no faction preference — not a priority target', score: 0 };
     return {
-      tier: deriveTier(score),
+      tier: scope === 'out-of-scope' ? 'out-of-scope' : 'not-applicable',
       scope,
       leadFaction: null,
-      score,
-      reasons: [...conflicts, scopeReason],
-      needsRecon: needsRecon(reconAgeDays),
-      reconAgeDays,
+      score: null,
+      reasons: [scopeReason],
+      needsRecon: false,
+      reconAgeDays: null,
     };
   }
 
@@ -349,8 +332,20 @@ export function computePriorityAssessment(row: BgsRow, nowMs: number = Date.now(
 
   let reasons: PriorityReason[] = leadFaction ? baseReasons(row, leadFaction, leadInfluence, weight, scope) : [];
   if (scope === 'assumed') {
-    // Never rank a push for control off an assumption nobody has confirmed with the architect.
+    // Never rank a push for control off an assumption nobody has confirmed with the architect
+    // — but a live war/election still surfaces here, since a system with no architect at all
+    // needs one assigned before anyone works it, and a conflict makes that urgent.
     reasons = reasons.filter(r => r.code !== 'gap-to-leader');
+    if (reasons.some(r => CONFLICT_REASON_CODES.has(r.code))) {
+      // Outranks every conflict trigger (retreat's 100 included) — with nobody confirmed
+      // responsible for this system, assigning an architect comes before working the
+      // conflict itself, so it has to lead the reasons list, not just tag along.
+      reasons.push({
+        code: 'assumed-needs-architect',
+        label: 'No architect assigned — get one assigned before working this war/election',
+        score: 101,
+      });
+    }
   }
   if (reasons.length === 0) {
     reasons = [{ code: 'none', label: 'Nothing applicable', score: 5 }];
@@ -373,16 +368,12 @@ export function computePriorityAssessment(row: BgsRow, nowMs: number = Date.now(
 }
 
 /**
- * The sort key for the Priority column. A confirmed lead (in-scope: the Architect Registry
- * names Canonn or CDSR) always outranks an assumed one, regardless of score — an assumed
- * lead is a guess, and shouldn't out-sort a system we actually know we're responsible for.
- * Out-of-scope/not-applicable rows with no live conflict stay null, sorting last either
- * direction via the table's existing null-last convention (see `compareColumnValues`).
+ * The sort key for the Priority column — every row carrying a visible badge (a real score,
+ * confirmed or assumed) sorts by that score, so the column's order always matches what the
+ * badges show. Rows with no badge (out-of-scope/not-applicable, no live conflict) stay null,
+ * sorting last either direction via the table's existing null-last convention (see
+ * `compareColumnValues`).
  */
 export function prioritySortKey(assessment: PriorityAssessment): number | null {
-  if (assessment.score === null) {
-    return null;
-  }
-  const scopeRank = assessment.scope === 'in-scope' ? 1 : 0;
-  return scopeRank * 1000 + assessment.score;
+  return assessment.score;
 }
