@@ -708,7 +708,14 @@ export class BgsTableComponent implements OnDestroy {
   /** Opens the read-only explanation for a Priority Watchlist entry, from the info button next to System Name. */
   protected openWatchlistDialog(row: BgsRow): void {
     const data: PriorityWatchlistDialogData = { row };
-    this.dialog.open(PriorityWatchlistDialogComponent, { data, autoFocus: 'first-tabbable', restoreFocus: true });
+    this.dialog.open(PriorityWatchlistDialogComponent, {
+      data,
+      autoFocus: 'first-tabbable',
+      restoreFocus: true,
+      // Matches .bgs-container's own max-width (minus its side padding) — the dialog should
+      // never read as wider than the table it's explaining a row of.
+      maxWidth: 'min(1168px, 90vw)',
+    });
   }
 
   /** Reflects a successful submission in whichever row collections are currently loaded. */
