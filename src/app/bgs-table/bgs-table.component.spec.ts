@@ -29,6 +29,7 @@ function row(systemName: string): BgsRow {
     y: 0,
     z: 0,
     updatedAt: null,
+    watchlist: [],
   };
 }
 

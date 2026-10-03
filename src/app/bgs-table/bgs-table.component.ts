@@ -14,6 +14,7 @@ import {
   faCheck,
   faChevronLeft,
   faChevronRight,
+  faCircleInfo,
   faCopy,
   faDownload,
   faMagnifyingGlass,
@@ -31,6 +32,10 @@ import {
   AssignArchitectDialogData,
 } from '../assign-architect-dialog/assign-architect-dialog.component';
 import { CanonnLogoComponent } from '../canonn-logo/canonn-logo.component';
+import {
+  PriorityWatchlistDialogComponent,
+  PriorityWatchlistDialogData,
+} from '../priority-watchlist-dialog/priority-watchlist-dialog.component';
 import { ArchitectSubmission } from '../data/architect-form';
 import { architectNames, suggestArchitects } from '../data/architect-registry';
 import { distanceLy } from '../data/distance';
@@ -188,6 +193,7 @@ export class BgsTableComponent implements OnDestroy {
   protected readonly faCopy = faCopy;
   protected readonly faCheck = faCheck;
   protected readonly faDownload = faDownload;
+  protected readonly faCircleInfo = faCircleInfo;
   /** Both Canonn-affiliated factions — their bars are highlighted orange in the Factions chart. */
   protected readonly canonnFactionNames: ReadonlySet<string> = new Set([CANONN_FACTION, CDSR_FACTION]);
   protected readonly encodeURIComponent = encodeURIComponent;
@@ -697,6 +703,12 @@ export class BgsTableComponent implements OnDestroy {
           this.applyAssignment(submission);
         }
       });
+  }
+
+  /** Opens the read-only explanation for a Priority Watchlist entry, from the info button next to System Name. */
+  protected openWatchlistDialog(row: BgsRow): void {
+    const data: PriorityWatchlistDialogData = { row };
+    this.dialog.open(PriorityWatchlistDialogComponent, { data, autoFocus: 'first-tabbable', restoreFocus: true });
   }
 
   /** Reflects a successful submission in whichever row collections are currently loaded. */

@@ -10,6 +10,7 @@
  */
 import { BgsRow, CANONN_FACTION, CDSR_FACTION } from '../canonn-bgs.service';
 import { daysElapsed, parseUpdatedAt } from './freshness';
+import { PriorityWatchlistEntry } from './priority-watchlist';
 
 export type PriorityTier = 'P0' | 'P1' | 'P2' | 'P3' | 'P4' | 'out-of-scope' | 'not-applicable';
 export type PriorityScope = 'in-scope' | 'assumed' | 'out-of-scope' | 'no-preference';
@@ -132,9 +133,14 @@ function isExplicitlyPreferred(row: BgsRow): boolean {
 /**
  * The scope gate (FR-4): whether a system is prioritised at all, and who leads it.
  *  - Preferred faction names Canonn/CDSR → in-scope, that's the lead.
- *  - Preferred faction names anyone else → out-of-scope — a standing agreement is worse to
- *    breach than to leave unworked.
- *  - "Not a colony" with no preference → in-scope, Canonn leads by default policy.
+ *  - Preferred faction names anyone else, and the system isn't flagged "not a colony" → out-of-
+ *    scope — a standing agreement is worse to breach than to leave unworked.
+ *  - "Not a colony" → always in-scope, Canonn leads by default policy, even if a third-party
+ *    Preferred Faction also got recorded on the same submission (the Assign dialog can default
+ *    that field from the architect's answer in a *different* system, so a stray value here
+ *    isn't a real hands-off agreement for this one). This matters: a non-colony system facing
+ *    withdrawal, or sitting last place among its factions, must not be hidden behind the
+ *    "hands off" badge the way a genuine third-party agreement is.
  *  - An architect is confirmed but left the preference blank → "no-preference": someone has
  *    already looked at this system and didn't name us, so unlike the truly-unknown case below
  *    there's no reason to guess a lead from influence presence — it's simply excluded.
@@ -152,6 +158,9 @@ export function resolveScope(row: BgsRow): { scope: PriorityScope; leadFaction: 
     }
     if (key === CDSR_KEY) {
       return { scope: 'in-scope', leadFaction: CDSR_FACTION };
+    }
+    if (row.notAColony) {
+      return { scope: 'in-scope', leadFaction: CANONN_FACTION };
     }
     return { scope: 'out-of-scope', leadFaction: null };
   }
@@ -252,17 +261,23 @@ function baseReasons(row: BgsRow, leadFaction: string, leadInfluence: number | n
 
   // Being the weakest faction present in a system with 4+ factions is a withdrawal-risk
   // signal — but only when the Architect Registry explicitly names one of our own factions
-  // (Canonn or CDSR) as preferred, not a guessed/assumed lead: getting a system we're
-  // actually responsible for out of danger comes before pushing anywhere else for control,
-  // so this outranks the work-priority triggers below and lands in P0. Not gated by the same
-  // "below 10%" floor or faction-count weighting as the influence triggers above, since this
-  // is about rank position itself, not a raw influence reading. Restricted to 4+ factions: in
-  // a 3-faction system there are only two rivals to beat, so "lowest of three" isn't a
-  // meaningful risk signal on its own.
-  if (isExplicitlyPreferred(row) && leadRankIndex !== -1 && leadRankIndex === row.factions.length - 1 && row.factions.length > 3) {
+  // (Canonn or CDSR) as preferred, or the system is flagged "not a colony" (still ours to
+  // protect from a forced withdrawal, even though nobody's building it up), not a
+  // guessed/assumed lead: getting a system we're actually responsible for out of danger comes
+  // before pushing anywhere else for control, so this outranks the work-priority triggers
+  // below and lands in P0. Not gated by the same "below 10%" floor or faction-count weighting
+  // as the influence triggers above, since this is about rank position itself, not a raw
+  // influence reading. Restricted to 4+ factions: in a 3-faction system there are only two
+  // rivals to beat, so "lowest of three" isn't a meaningful risk signal on its own.
+  if (
+    (isExplicitlyPreferred(row) || row.notAColony) &&
+    leadRankIndex !== -1 &&
+    leadRankIndex === row.factions.length - 1 &&
+    row.factions.length > 3
+  ) {
     reasons.push({
       code: 'lead-lowest-should-control',
-      label: 'Explicitly preferred and weakest here (4+ factions) — get to safety before pushing for control',
+      label: 'Weakest faction here (4+ factions) — get to safety before pushing for control',
       score: 90,
     });
   }
@@ -301,6 +316,51 @@ function baseReasons(row: BgsRow, leadFaction: string, leadInfluence: number | n
   return reasons;
 }
 
+/** A watchlist entry's faction's rank among the system's factions, 1-based; absent from the system ranks one past the last. */
+function watchlistFactionRank(row: BgsRow, faction: string): number {
+  const index = row.factions.findIndex(f => f.name === faction);
+  return index === -1 ? row.factions.length + 1 : index + 1;
+}
+
+/**
+ * The Priority Watchlist's own trigger: a hand-picked system/faction pair that should never
+ * rank below a given position (see `priority-watchlist.ts`). Fires whenever the named faction's
+ * actual rank is worse (numerically higher) than the entry's required position — independent of
+ * whichever faction {@link resolveScope} picked as this row's "lead", since the sheet names its
+ * own faction explicitly and doesn't need to agree with the lead to apply.
+ */
+function watchlistReasons(row: BgsRow): PriorityReason[] {
+  const reasons: PriorityReason[] = [];
+  for (const entry of row.watchlist) {
+    const currentPosition = watchlistFactionRank(row, entry.faction);
+    if (currentPosition > entry.position) {
+      reasons.push({
+        code: 'below-watchlist-position',
+        label: `${entry.faction} is ranked #${currentPosition}, below the required #${entry.position}`,
+        score: 90,
+      });
+    }
+  }
+  return reasons;
+}
+
+/**
+ * The out-of-scope override: a system is normally hands-off when the Architect Registry names
+ * a third-party faction as preferred (see {@link resolveScope}) — but the Priority Watchlist
+ * can also watch over that same non-Canonn/CDSR faction (e.g. an ally we've agreed to leave
+ * alone unless they're in trouble). BGS work here is only allowed once that named faction has
+ * actually fallen below its required position; while it's holding its position the hands-off
+ * agreement still stands.
+ */
+function outOfScopeWatchlistReasons(row: BgsRow): PriorityReason[] {
+  const preferred = row.preferredFaction?.trim();
+  if (!preferred) {
+    return [];
+  }
+  const watched = row.watchlist.filter(entry => entry.faction === preferred);
+  return watchlistReasons({ ...row, watchlist: watched });
+}
+
 /** Reason codes from {@link conflictReasons}, so the "needs an architect" trigger below can detect one fired. */
 const CONFLICT_REASON_CODES = new Set(['retreat', 'war-active', 'election-active', 'war-pending', 'election-pending']);
 
@@ -309,6 +369,28 @@ export function computePriorityAssessment(row: BgsRow, nowMs: number = Date.now(
   const { scope, leadFaction } = resolveScope(row);
 
   if (scope === 'out-of-scope' || scope === 'no-preference') {
+    if (scope === 'out-of-scope') {
+      // The hands-off agreement can be lifted by the Priority Watchlist itself: if it's
+      // watching the same third-party faction the Architect Registry names here and that
+      // faction has slipped below its required position, BGS work is allowed after all —
+      // see outOfScopeWatchlistReasons.
+      const overrideReasons = outOfScopeWatchlistReasons(row);
+      if (overrideReasons.length > 0) {
+        overrideReasons.sort((a, b) => b.score - a.score);
+        const score = overrideReasons[0].score;
+        const updatedAtMs = parseUpdatedAt(row.updatedAt);
+        const reconAgeDays = updatedAtMs === null ? null : daysElapsed(updatedAtMs, nowMs);
+        return {
+          tier: deriveTier(score),
+          scope,
+          leadFaction: null,
+          score,
+          reasons: overrideReasons,
+          needsRecon: needsRecon(reconAgeDays),
+          reconAgeDays,
+        };
+      }
+    }
     // Neither scope is ours to work — a standing "hands off" agreement or an architect who's
     // already looked and named nobody. A live war/election there doesn't change that; it's
     // simply not a priority target, badge or no badge.
@@ -347,6 +429,7 @@ export function computePriorityAssessment(row: BgsRow, nowMs: number = Date.now(
       });
     }
   }
+  reasons = reasons.concat(watchlistReasons(row));
   if (reasons.length === 0) {
     reasons = [{ code: 'none', label: 'Nothing applicable', score: 5 }];
   }

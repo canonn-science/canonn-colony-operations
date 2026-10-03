@@ -13,6 +13,7 @@ import {
 } from './data/architect-registry';
 import { isHomeSystem } from './data/home-systems';
 import { logger } from './data/logger';
+import { PriorityWatchlistEntry, buildWatchlistMap, parseWatchlistTsv } from './data/priority-watchlist';
 
 /** Base URL for the Canonn cloud-function query API. */
 const QUERY_BASE = 'https://us-central1-canonn-api-236217.cloudfunctions.net/query';
@@ -33,6 +34,16 @@ const ARCHITECTS_SHEET_URL =
 /** Short timeout for the sheet fetch — it's a fast-path attempt, not a resilient one; fail quick and fall back. */
 const ARCHITECTS_SHEET_TIMEOUT_MS = 8000;
 
+/**
+ * The Priority Watchlist — a different published tab of the same spreadsheet the Architect
+ * Registry lives in (see {@link ARCHITECTS_SHEET_URL}'s doc comment; same caveats apply). Unlike
+ * the registry, there's no Cloud Function fallback for this one — a failed fetch just means no
+ * watchlist entries are applied this session, rather than blocking the table.
+ */
+const WATCHLIST_SHEET_URL =
+  'https://docs.google.com/spreadsheets/d/e/2PACX-1vS5TMBu2KJQBaNqSBropWVdXUcOjz-wJe57e8h4pRPzr7zZ066yjO-H2Z7hqZe-fOVSpzy-7dzAqU2z/pub?gid=668117854&single=true&output=tsv';
+const WATCHLIST_SHEET_TIMEOUT_MS = 8000;
+
 /** Default per-request timeout for remote API calls (ms). */
 const HTTP_TIMEOUT_MS = 20000;
 /** Number of automatic retries for transient failures. */
@@ -52,6 +63,11 @@ export const BGS_PAGE_SIZE = 50;
 const ARCHITECTS_CACHE_KEY = 'canonn-bgs:architects-cache:v2';
 /** How long the architect registry is cached before it's refetched. */
 const ARCHITECTS_CACHE_DURATION_MS = 2 * 60 * 60 * 1000;
+
+/** localStorage key the priority watchlist is persisted under. */
+const WATCHLIST_CACHE_KEY = 'canonn-bgs:watchlist-cache:v1';
+/** How long the priority watchlist is cached before it's refetched. */
+const WATCHLIST_CACHE_DURATION_MS = 2 * 60 * 60 * 1000;
 
 export const CANONN_FACTION = 'Canonn';
 export const CDSR_FACTION = 'Canonn Deep Space Research';
@@ -231,6 +247,8 @@ export interface BgsRow {
   z: number;
   /** Raw `updated_at` from the API, as-is; the Freshness column derives its pill from this. */
   updatedAt: string | null;
+  /** Priority Watchlist entries naming this system, if any — see {@link PriorityWatchlistEntry}. */
+  watchlist: PriorityWatchlistEntry[];
 }
 
 export interface BgsPage {
@@ -245,6 +263,13 @@ interface ArchitectsCachePayload {
   /** The build that wrote this cache; a mismatch (a new build was deployed) invalidates it. */
   buildId: string;
   rows: ArchitectRegistryRow[];
+}
+
+interface WatchlistCachePayload {
+  fetchedAt: number;
+  /** The build that wrote this cache; a mismatch (a new build was deployed) invalidates it. */
+  buildId: string;
+  entries: PriorityWatchlistEntry[];
 }
 
 /**
@@ -560,6 +585,7 @@ export class CanonnBgsService {
   private registryFetchedAt = 0;
   /** {@link registryRows} collapsed to one entry per system; rebuilt when the registry changes. */
   private architectInfo: Map<string, ArchitectInfo> | null = null;
+  private watchlistPromise?: Promise<Map<string, PriorityWatchlistEntry[]>>;
 
   /** Fetches a page of BGS results (0-based), from cache if it's already been loaded. */
   getPage(page: number): Promise<BgsPage> {
@@ -589,6 +615,11 @@ export class CanonnBgsService {
    */
   getArchitectRegistry(): Promise<readonly ArchitectRegistryRow[]> {
     return this.getRegistry();
+  }
+
+  /** Every Priority Watchlist entry, grouped by system — what {@link toRow} attaches to each {@link BgsRow}. */
+  getPriorityWatchlist(): Promise<ReadonlyMap<string, PriorityWatchlistEntry[]>> {
+    return this.getWatchlist();
   }
 
   /**
@@ -674,12 +705,12 @@ export class CanonnBgsService {
   }
 
   private async fetchPage(page: number): Promise<BgsPage> {
-    const [token, architects] = await Promise.all([this.getToken(), this.getArchitectInfo()]);
+    const [token, architects, watchlist] = await Promise.all([this.getToken(), this.getArchitectInfo(), this.getWatchlist()]);
     const response = await this.resilientGet<BgsPageResponse>(`${BGS_ENDPOINT}/${token}/${page}`);
     const pageSize = this.resolvePageSize(page, response.results.length);
     return {
       page,
-      rows: response.results.map(record => this.toRow(record, architects)),
+      rows: response.results.map(record => this.toRow(record, architects, watchlist)),
       totalCount: response.count,
       totalPages: Math.max(1, Math.ceil(response.count / pageSize)),
     };
@@ -703,7 +734,11 @@ export class CanonnBgsService {
     return this.discoveredPageSize ?? BGS_PAGE_SIZE;
   }
 
-  private toRow(record: BgsSystemRecord, architects: ReadonlyMap<string, ArchitectInfo>): BgsRow {
+  private toRow(
+    record: BgsSystemRecord,
+    architects: ReadonlyMap<string, ArchitectInfo>,
+    watchlist: ReadonlyMap<string, PriorityWatchlistEntry[]>,
+  ): BgsRow {
     const presences = record.minor_faction_presences ?? [];
     const info = architects.get(record.name);
     const canonnInfluence = this.influencePercent(presences, CANONN_FACTION);
@@ -752,6 +787,7 @@ export class CanonnBgsService {
       y: record.y,
       z: record.z,
       updatedAt: record.updated_at ?? null,
+      watchlist: watchlist.get(record.name) ?? [],
     };
   }
 
@@ -840,6 +876,68 @@ export class CanonnBgsService {
       }
     }
     return rows;
+  }
+
+  /** Loads the priority watchlist at most once per session, grouped by system; never throws — see {@link loadWatchlist}. */
+  private getWatchlist(): Promise<Map<string, PriorityWatchlistEntry[]>> {
+    if (!this.watchlistPromise) {
+      this.watchlistPromise = this.loadWatchlist();
+    }
+    return this.watchlistPromise;
+  }
+
+  private async loadWatchlist(): Promise<Map<string, PriorityWatchlistEntry[]>> {
+    const cached = this.readWatchlistCache();
+    if (cached) {
+      return buildWatchlistMap(cached.entries);
+    }
+
+    const entries = await this.loadWatchlistFromSheet();
+    this.writeWatchlistCache(entries, Date.now());
+    return buildWatchlistMap(entries);
+  }
+
+  /**
+   * Fetches the published Priority Watchlist sheet directly. Unlike the Architect Registry
+   * there's no Cloud Function fallback for this tab, so any failure just means no watchlist
+   * entries are applied this session rather than blocking the page from loading at all.
+   */
+  private async loadWatchlistFromSheet(): Promise<PriorityWatchlistEntry[]> {
+    try {
+      const text = await this.fetchTextOnce(WATCHLIST_SHEET_URL, WATCHLIST_SHEET_TIMEOUT_MS);
+      return parseWatchlistTsv(text);
+    } catch (error) {
+      logger.warn('Priority watchlist sheet fetch failed; no watchlist entries will be applied.', error);
+      return [];
+    }
+  }
+
+  private readWatchlistCache(): { entries: PriorityWatchlistEntry[]; fetchedAt: number } | null {
+    try {
+      const raw = localStorage.getItem(WATCHLIST_CACHE_KEY);
+      if (!raw) {
+        return null;
+      }
+      const payload = JSON.parse(raw) as WatchlistCachePayload;
+      if (payload.buildId !== BUILD_ID) {
+        return null;
+      }
+      if (Date.now() - payload.fetchedAt >= WATCHLIST_CACHE_DURATION_MS) {
+        return null;
+      }
+      return { entries: payload.entries, fetchedAt: payload.fetchedAt };
+    } catch {
+      return null;
+    }
+  }
+
+  private writeWatchlistCache(entries: readonly PriorityWatchlistEntry[], fetchedAt: number): void {
+    try {
+      const payload: WatchlistCachePayload = { fetchedAt, buildId: BUILD_ID, entries: [...entries] };
+      localStorage.setItem(WATCHLIST_CACHE_KEY, JSON.stringify(payload));
+    } catch {
+      // Storage full/unavailable (e.g. private browsing) — the in-memory entries still serve this session.
+    }
   }
 
   private readArchitectsCache(): { rows: ArchitectRegistryRow[]; fetchedAt: number } | null {

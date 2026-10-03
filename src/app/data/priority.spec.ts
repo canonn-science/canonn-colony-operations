@@ -36,6 +36,7 @@ function row(overrides: Partial<BgsRow> = {}): BgsRow {
     y: 0,
     z: 0,
     updatedAt: null,
+    watchlist: [],
     ...overrides,
   };
 }
@@ -60,6 +61,16 @@ describe('resolveScope', () => {
 
   it('is in-scope with Canonn as lead by default policy when marked "not a colony" with no preference', () => {
     expect(resolveScope(row({ notAColony: true }))).toEqual({ scope: 'in-scope', leadFaction: CANONN_FACTION });
+  });
+
+  it('stays in-scope with Canonn as lead for "not a colony" even when a stray third-party preference was also recorded', () => {
+    // The Assign dialog can default Preferred Faction from the architect's answer in a
+    // *different* system, so a third-party value alongside "not a colony" isn't a real
+    // hands-off agreement for this system — it must not get the out-of-scope treatment.
+    expect(resolveScope(row({ notAColony: true, preferredFaction: 'Varati Ring' }))).toEqual({
+      scope: 'in-scope',
+      leadFaction: CANONN_FACTION,
+    });
   });
 
   it('is "assumed" when there is no confirmed preference, leading from whichever faction is present', () => {
@@ -382,6 +393,42 @@ describe('computePriorityAssessment', () => {
     expect(cdsrButLast.tier).toBe('P0');
   });
 
+  it('also sends a "not a colony" system to P0 when our faction is weakest of 4+ — still ours to protect from a forced withdrawal', () => {
+    const notAColonyButLast = computePriorityAssessment(
+      row({
+        notAColony: true,
+        canonnInfluence: 20,
+        factions: [
+          { name: 'Rival A', influencePercent: 30 },
+          { name: 'Rival B', influencePercent: 28 },
+          { name: 'Rival C', influencePercent: 22 },
+          { name: 'Canonn', influencePercent: 20 },
+        ],
+        updatedAt: current,
+      }),
+      NOW,
+    );
+    expect(notAColonyButLast.scope).toBe('in-scope');
+    expect(notAColonyButLast.reasons[0]).toMatchObject({ code: 'lead-lowest-should-control', score: 90 });
+    expect(notAColonyButLast.tier).toBe('P0');
+  });
+
+  it('surfaces an active retreat as P0 in a "not a colony" system even with a stray third-party preference attached — not hidden behind the hands-off badge', () => {
+    const assessment = computePriorityAssessment(
+      row({
+        notAColony: true,
+        preferredFaction: 'Varati Ring',
+        retreatState: 'active',
+        updatedAt: current,
+      }),
+      NOW,
+    );
+    expect(assessment.scope).toBe('in-scope');
+    expect(assessment.tier).not.toBe('out-of-scope');
+    expect(assessment.reasons[0]).toMatchObject({ code: 'retreat', score: 100 });
+    expect(assessment.tier).toBe('P0');
+  });
+
   it('does not fire the last-place trigger in an assumed (unconfirmed) system of 4+ factions — only an explicit preference counts', () => {
     const assumedButLast = computePriorityAssessment(
       row({
@@ -574,6 +621,101 @@ describe('computePriorityAssessment', () => {
       expect(stale.needsRecon).toBe(true);
       expect(unknown.needsRecon).toBe(true);
       expect(fresh.needsRecon).toBe(false);
+    });
+  });
+
+  describe('Priority Watchlist', () => {
+    it('boosts priority when the watchlisted faction ranks below the required position', () => {
+      const assessment = computePriorityAssessment(
+        row({
+          preferredFaction: 'Canonn',
+          canonnInfluence: 20,
+          factions: [
+            { name: 'Rival', influencePercent: 50 },
+            { name: 'Canonn', influencePercent: 20 },
+          ],
+          watchlist: [{ systemName: 'Test System', faction: CANONN_FACTION, position: 1, details: 'Key waypoint.' }],
+        }),
+        NOW,
+      );
+      expect(assessment.reasons.some(r => r.code === 'below-watchlist-position')).toBe(true);
+      expect(assessment.reasons[0].code).toBe('below-watchlist-position');
+    });
+
+    it('does not fire when the watchlisted faction already meets its required position', () => {
+      const assessment = computePriorityAssessment(
+        row({
+          preferredFaction: 'Canonn',
+          canonnInfluence: 60,
+          factions: [{ name: 'Canonn', influencePercent: 60 }],
+          watchlist: [{ systemName: 'Test System', faction: CANONN_FACTION, position: 1, details: 'Key waypoint.' }],
+        }),
+        NOW,
+      );
+      expect(assessment.reasons.some(r => r.code === 'below-watchlist-position')).toBe(false);
+    });
+
+    it('treats a watchlisted faction entirely absent from the system as below any required position', () => {
+      const assessment = computePriorityAssessment(
+        row({
+          preferredFaction: 'Canonn',
+          factions: [{ name: 'Rival', influencePercent: 100 }],
+          watchlist: [{ systemName: 'Test System', faction: CANONN_FACTION, position: 1, details: 'Key waypoint.' }],
+        }),
+        NOW,
+      );
+      expect(assessment.reasons.some(r => r.code === 'below-watchlist-position')).toBe(true);
+    });
+
+    describe('overriding an out-of-scope hands-off agreement', () => {
+      it('allows BGS work when the watchlist tracks the hands-off third party and it has fallen below its required position', () => {
+        const assessment = computePriorityAssessment(
+          row({
+            preferredFaction: 'Varati Ring',
+            factions: [
+              { name: 'Rival', influencePercent: 50 },
+              { name: 'Varati Ring', influencePercent: 20 },
+            ],
+            watchlist: [{ systemName: 'Test System', faction: 'Varati Ring', position: 1, details: 'Keep our ally in control.' }],
+          }),
+          NOW,
+        );
+        expect(assessment.scope).toBe('out-of-scope');
+        expect(assessment.tier).not.toBe('out-of-scope');
+        expect(assessment.reasons[0]).toMatchObject({ code: 'below-watchlist-position', score: 90 });
+        expect(assessment.tier).toBe('P0');
+      });
+
+      it('keeps the hands-off badge while the watched third party still holds its required position', () => {
+        const assessment = computePriorityAssessment(
+          row({
+            preferredFaction: 'Varati Ring',
+            factions: [{ name: 'Varati Ring', influencePercent: 50 }],
+            watchlist: [{ systemName: 'Test System', faction: 'Varati Ring', position: 1, details: 'Keep our ally in control.' }],
+          }),
+          NOW,
+        );
+        expect(assessment.tier).toBe('out-of-scope');
+        expect(assessment.score).toBeNull();
+      });
+
+      it('keeps the hands-off badge when the watchlist entry names a different faction than the hands-off preference', () => {
+        const assessment = computePriorityAssessment(
+          row({
+            preferredFaction: 'Varati Ring',
+            factions: [
+              { name: 'Varati Ring', influencePercent: 50 },
+              { name: 'Canonn', influencePercent: 5 },
+            ],
+            canonnInfluence: 5,
+            // Watches Canonn itself, not the hands-off faction — irrelevant to the override.
+            watchlist: [{ systemName: 'Test System', faction: CANONN_FACTION, position: 1, details: 'Unrelated entry.' }],
+          }),
+          NOW,
+        );
+        expect(assessment.tier).toBe('out-of-scope');
+        expect(assessment.score).toBeNull();
+      });
     });
   });
 });

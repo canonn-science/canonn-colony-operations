@@ -28,6 +28,8 @@ export interface ExportRecord {
   z: number;
   updatedAt: string | null;
   freshnessLabel: string;
+  /** Why this system is on the Priority Watchlist, if it is — one line per entry. Null if it carries none. */
+  watchlistDetails: string | null;
 }
 
 /** Flattens a row into an {@link ExportRecord}, folding in the same priority/freshness the table computes for display. */
@@ -54,6 +56,10 @@ export function toExportRecord(row: BgsRow, nowMs: number): ExportRecord {
     z: row.z,
     updatedAt: row.updatedAt,
     freshnessLabel: computeFreshness(row.updatedAt, nowMs).label,
+    watchlistDetails:
+      row.watchlist.length > 0
+        ? row.watchlist.map(entry => `${entry.faction} (target #${entry.position}): ${entry.details}`).join(' | ')
+        : null,
   };
 }
 
@@ -106,6 +112,7 @@ const CSV_COLUMNS: readonly (keyof ExportRecord)[] = [
   'z',
   'updatedAt',
   'freshnessLabel',
+  'watchlistDetails',
 ];
 
 /** Quotes a CSV field only when it needs it (contains a comma, quote, or newline), per RFC 4180. */

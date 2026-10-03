@@ -27,6 +27,7 @@ function row(overrides: Partial<BgsRow> = {}): BgsRow {
     y: 0,
     z: 0,
     updatedAt: null,
+    watchlist: [],
     ...overrides,
   };
 }
@@ -76,6 +77,26 @@ describe('toExportRecord', () => {
     expect(record.priorityTier).toBeTruthy();
     expect(record.freshnessLabel).toBe('now');
   });
+
+  it('is null when the system carries no Priority Watchlist entries', () => {
+    const record = toExportRecord(row(), NOW);
+    expect(record.watchlistDetails).toBeNull();
+  });
+
+  it('flattens Priority Watchlist entries into one readable string, preserving commas inside Details', () => {
+    const record = toExportRecord(
+      row({
+        watchlist: [
+          { systemName: 'Varati', faction: 'Canonn', position: 1, details: 'Key waypoint, keep it secured.' },
+          { systemName: 'Varati', faction: 'Canonn Deep Space Research', position: 2, details: 'Backup faction.' },
+        ],
+      }),
+      NOW,
+    );
+    expect(record.watchlistDetails).toBe(
+      'Canonn (target #1): Key waypoint, keep it secured. | Canonn Deep Space Research (target #2): Backup faction.',
+    );
+  });
 });
 
 describe('exportFilename', () => {
@@ -103,7 +124,7 @@ describe('rowsToCsv', () => {
     );
     const lines = csv.split('\r\n');
     expect(lines[0]).toBe(
-      'systemName,controllingFaction,canonnInfluence,cdsrInfluence,architect,preferredFaction,factions,warState,electionState,retreatState,priorityTier,priorityScore,needsRecon,bodyCount,population,x,y,z,updatedAt,freshnessLabel',
+      'systemName,controllingFaction,canonnInfluence,cdsrInfluence,architect,preferredFaction,factions,warState,electionState,retreatState,priorityTier,priorityScore,needsRecon,bodyCount,population,x,y,z,updatedAt,freshnessLabel,watchlistDetails',
     );
     expect(lines[1]).toContain('Varati,Canonn,42.5,,,,Canonn: 42.5%; Some Other Faction: 12.3%,');
   });
@@ -111,6 +132,14 @@ describe('rowsToCsv', () => {
   it('quotes fields containing a comma and escapes embedded quotes', () => {
     const csv = rowsToCsv([row({ systemName: 'A, "Tricky" System' })], NOW);
     expect(csv.split('\r\n')[1]).toContain('"A, ""Tricky"" System"');
+  });
+
+  it('quotes the watchlistDetails column when its text contains a comma, so the row still parses as one field', () => {
+    const csv = rowsToCsv(
+      [row({ watchlist: [{ systemName: 'Varati', faction: 'Canonn', position: 1, details: 'Key waypoint, keep it secured.' }] })],
+      NOW,
+    );
+    expect(csv.split('\r\n')[1]).toContain('"Canonn (target #1): Key waypoint, keep it secured."');
   });
 
   it('prefixes formula-like string fields to prevent spreadsheet formula injection', () => {

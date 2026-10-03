@@ -1,0 +1,19 @@
+<h2 mat-dialog-title>Why {{ systemName }} matters</h2>
+
+<mat-dialog-content>
+  <div class="watchlist-entries">
+    @for (entry of entries; track entry.faction) {
+      <div class="watchlist-entry">
+        <div class="watchlist-entry-header">
+          <span class="watchlist-entry-faction">{{ entry.faction }}</span>
+          <span class="watchlist-entry-position">Target: #{{ entry.position }}</span>
+        </div>
+        <p class="watchlist-entry-details">{{ entry.details }}</p>
+      </div>
+    }
+  </div>
+</mat-dialog-content>
+
+<mat-dialog-actions align="end">
+  <button mat-flat-button color="primary" type="button" mat-dialog-close>Close</button>
+</mat-dialog-actions>

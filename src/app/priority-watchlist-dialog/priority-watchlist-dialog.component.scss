@@ -1,0 +1,29 @@
+.watchlist-entries {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: min(420px, 70vw);
+  padding-top: 8px;
+}
+
+.watchlist-entry-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.watchlist-entry-faction {
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+.watchlist-entry-position {
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+}
+
+.watchlist-entry-details {
+  margin: 4px 0 0;
+  white-space: pre-wrap;
+}
