@@ -1,17 +1,92 @@
-<h2 mat-dialog-title>Why {{ systemName }} matters</h2>
+<h2 mat-dialog-title class="info-title">{{ row.systemName }}</h2>
 
 <mat-dialog-content>
-  <div class="watchlist-entries">
-    @for (entry of entries; track entry.faction) {
-      <div class="watchlist-entry">
-        <div class="watchlist-entry-header">
-          <span class="watchlist-entry-faction">{{ entry.faction }}</span>
-          <span class="watchlist-entry-position">Target: #{{ entry.position }}</span>
+  @if (entries.length > 0) {
+    <section class="info-card">
+      <h3 class="info-heading">Information</h3>
+      @for (entry of entries; track entry.faction) {
+        <div class="info-entry">
+          <p class="info-details">{{ entry.details }}</p>
+          <p class="info-target">Priority Watchlist target: #{{ entry.position }}</p>
         </div>
-        <p class="watchlist-entry-details">{{ entry.details }}</p>
+      }
+    </section>
+  }
+
+  <section class="info-stats" aria-label="System overview">
+    <div class="info-stat info-stat--wide">
+      <span class="info-stat-label">Controlling faction</span>
+      <span class="info-stat-value">{{ row.controllingFaction ?? '—' }}</span>
+    </div>
+    <div class="info-stat">
+      <span class="info-stat-label">Population</span>
+      <span class="info-stat-value">{{ row.population === null ? '—' : (row.population | number) }}</span>
+    </div>
+    <div class="info-stat">
+      <span class="info-stat-label">Stations</span>
+      <span class="info-stat-value">{{ row.stationCount === null ? '—' : (row.stationCount | number) }}</span>
+    </div>
+    <div class="info-stat">
+      <span class="info-stat-label">Bodies</span>
+      <span class="info-stat-value">{{ row.bodyCount === null ? '—' : (row.bodyCount | number) }}</span>
+    </div>
+  </section>
+
+  <section class="info-card info-card--table">
+    <h3 class="info-heading">Canonn assets</h3>
+    @if (row.stations.length > 0) {
+      <div class="info-table-wrap">
+        <table class="info-table">
+          <thead>
+            <tr>
+              <th scope="col">Name</th>
+              <th scope="col">Type</th>
+              <th scope="col">Faction</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (station of row.stations; track station.name) {
+              <tr>
+                <td>{{ station.name }}</td>
+                <td>{{ station.type ?? '—' }}</td>
+                <td>{{ station.controllingFaction ?? '—' }}</td>
+              </tr>
+            }
+          </tbody>
+        </table>
       </div>
+    } @else {
+      <p class="info-empty">No Canonn assets recorded.</p>
     }
-  </div>
+  </section>
+
+  <section class="info-card info-card--table">
+    <h3 class="info-heading">Factions</h3>
+    <div class="info-table-wrap">
+      <table class="info-table">
+        <thead>
+          <tr>
+            <th scope="col">Name</th>
+            <th scope="col">Allegiance</th>
+            <th scope="col">Government</th>
+            <th scope="col" class="info-num">Influence</th>
+            <th scope="col">Active states</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (faction of row.factionDetails; track faction.name) {
+            <tr>
+              <td>{{ faction.name }}</td>
+              <td>{{ faction.allegiance ?? '—' }}</td>
+              <td>{{ faction.government ?? '—' }}</td>
+              <td class="info-num">{{ faction.influencePercent | number: '1.1-1' }}%</td>
+              <td>{{ faction.activeStates.length > 0 ? faction.activeStates.join(', ') : '—' }}</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  </section>
 </mat-dialog-content>
 
 <mat-dialog-actions align="end">

@@ -345,17 +345,16 @@
                     class="bgs-system-link"
                     [title]="systemNameTitle(row)"
                   >{{ row.systemName }}</a>
-                  @if (row.watchlist.length > 0) {
-                    <button
-                      type="button"
-                      class="bgs-watchlist-button"
-                      [title]="'Why ' + row.systemName + ' is on the Priority Watchlist'"
-                      [attr.aria-label]="'Why ' + row.systemName + ' is on the Priority Watchlist'"
-                      (click)="openWatchlistDialog(row)"
-                    >
-                      <fa-icon [icon]="faCircleInfo"></fa-icon>
-                    </button>
-                  }
+                  <button
+                    type="button"
+                    class="bgs-info-button"
+                    [class.bgs-info-button--listed]="row.watchlist.length > 0"
+                    [title]="infoButtonTitle(row)"
+                    [attr.aria-label]="infoButtonTitle(row)"
+                    (click)="openWatchlistDialog(row)"
+                  >
+                    <fa-icon [icon]="faCircleInfo"></fa-icon>
+                  </button>
                 </td>
                 <td class="bgs-col-freshness">
                   @let freshness = freshnessFor(row);
@@ -464,7 +463,7 @@
                     {{ row.architect }}
                   }
                 </td>
-                <td class="bgs-col-wrap">{{ row.preferredFaction ?? '—' }}</td>
+                <td class="bgs-col-wrap" [class.bgs-preferred-derived]="!row.preferredFactionRecorded">{{ row.preferredFaction ?? '—' }}</td>
               </tr>
             }
           }

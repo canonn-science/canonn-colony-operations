@@ -1,29 +1,176 @@
-.watchlist-entries {
+:host {
+  display: block;
+}
+
+.info-title {
+  color: var(--color-accent);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+mat-dialog-content {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  min-width: min(420px, 70vw);
-  padding-top: 8px;
+  min-width: min(640px, 80vw);
+  max-height: 70vh;
+  padding-top: 4px;
+  overflow-y: auto;
 }
 
-.watchlist-entry-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 12px;
+// A bordered panel grouping one part of the dialog.
+.info-card {
+  padding: 14px 16px;
+  border: 1px solid var(--color-border-muted);
+  border-radius: 8px;
+  background-color: var(--color-surface-2);
 }
 
-.watchlist-entry-faction {
-  color: var(--color-accent);
-  font-weight: 600;
+// A card whose table runs edge to edge, like the main table's wrapper.
+.info-card--table {
+  padding: 0;
+  background-color: var(--color-surface);
+
+  .info-heading {
+    margin: 0;
+    padding: 14px 16px 10px;
+  }
 }
 
-.watchlist-entry-position {
+.info-heading {
+  margin: 0 0 10px;
   color: var(--color-text-muted);
-  font-size: 0.85rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
 
-.watchlist-entry-details {
-  margin: 4px 0 0;
+.info-entry {
+  & + & {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--color-border-muted);
+  }
+}
+
+.info-details {
+  margin: 0;
+  line-height: 1.5;
   white-space: pre-wrap;
+}
+
+.info-target {
+  margin: 6px 0 0;
+  color: var(--color-text-muted);
+  font-size: 0.8rem;
+}
+
+// Headline numbers as a row of tiles; the controlling faction spans the full first row.
+.info-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.info-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border-muted);
+  border-radius: 8px;
+  background-color: var(--color-surface-2);
+
+  &--wide {
+    grid-column: 1 / -1;
+  }
+}
+
+.info-stat-label {
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.info-stat-value {
+  color: var(--color-accent);
+  font-size: 1.15rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.info-table-wrap {
+  overflow-x: auto;
+  border-radius: 0 0 8px 8px;
+}
+
+.info-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+
+  th,
+  td {
+    padding: 10px 14px;
+    text-align: left;
+    vertical-align: top;
+  }
+
+  // Long names and state lists wrap rather than widening the table past its card.
+  td {
+    overflow-wrap: anywhere;
+  }
+
+  thead th {
+    white-space: nowrap;
+    position: sticky;
+    top: 0;
+    background-color: var(--color-surface-2);
+    color: var(--color-accent);
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    border-bottom: 1px solid var(--color-border-muted);
+  }
+
+  tbody tr {
+    border-bottom: 1px solid var(--color-surface-5);
+  }
+
+  tbody tr:hover {
+    background-color: var(--color-surface-hover);
+  }
+
+  tbody tr:last-child {
+    border-bottom: none;
+  }
+
+  td {
+    color: var(--color-text);
+  }
+
+  .info-num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+.info-empty {
+  margin: 0;
+  padding: 0 16px 14px;
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
+}
+
+@media (max-width: 600px) {
+  mat-dialog-content {
+    min-width: 0;
+  }
+
+  .info-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }

@@ -133,6 +133,8 @@ function pendingEntryStateName(entry: string | PendingStateEntry): string {
 
 interface MinorFactionPresence {
   name: string;
+  allegiance?: string;
+  government?: string;
   influence: number;
   /** Current state(s), e.g. "Boom", "War". Authoritative — see issue #6. */
   active_states?: string[];
@@ -160,6 +162,17 @@ interface BgsSystemRecord {
   /** Number of astronomical bodies scanned in the system. */
   body_count?: number | null;
   population?: number | null;
+  /** Total stations in the system (all of them, not just Canonn's). Higher wins a priority tie. */
+  station_count?: number | null;
+  /** Every station in the system; those with "canonn" in their name make the system Canonn-led. */
+  canonn_assets?: CanonnAsset[] | null;
+}
+
+/** A station or installation in a system, as the API's `canonn_assets` array describes it. */
+export interface CanonnAsset {
+  name: string;
+  type: string;
+  controlling_minor_faction: string | null;
 }
 
 interface BgsPageResponse {
@@ -195,6 +208,24 @@ export interface FactionInfluence {
   influencePercent: number;
 }
 
+/** A station in a system, as the system info dialog lists it. */
+export interface StationDetail {
+  name: string;
+  type: string | null;
+  controllingFaction: string | null;
+}
+
+/** A minor faction present in a system, with the detail the system dialog's faction table shows. */
+export interface FactionDetail {
+  name: string;
+  allegiance: string | null;
+  government: string | null;
+  /** 0-100 percentage. */
+  influencePercent: number;
+  /** The faction's current state(s), e.g. "Boom", "War" — empty if none. */
+  activeStates: string[];
+}
+
 /** Whether a war/election affecting Canonn or CDSR is already happening or just upcoming. */
 export type FactionStateStatus = 'active' | 'pending' | null;
 
@@ -209,9 +240,24 @@ export interface BgsRow {
   architect: string | null;
   /** Recorded as "Nobody — the system is not a colony": shown blank rather than offering Assign again. */
   notAColony: boolean;
+  /**
+   * The faction this system should be worked for: the Architect Registry's Preferred Faction
+   * if one is recorded; otherwise, when the system has a station with "canonn" in its name,
+   * whichever of Canonn/CDSR has more influence here (see {@link derivePreferredFaction}).
+   */
   preferredFaction: string | null;
+  /** False when {@link preferredFaction} was derived from a Canonn-named station rather than recorded in the registry — shown grey. */
+  preferredFactionRecorded: boolean;
+  /** Whether any station in the system has "canonn" in its name (matching "Canonnia" or "Arcanonn" too). */
+  hasCanonnStation: boolean;
+  /** Stations in the system, all of them — the Priority column's tiebreak after the priority itself. Null if the API omits it. */
+  stationCount: number | null;
   /** Every minor faction present in the system, sorted by influence descending (highest first). */
   factions: FactionInfluence[];
+  /** The same factions with allegiance, government and active states, for the system info dialog. */
+  factionDetails: FactionDetail[];
+  /** The system's stations (the API's canonn_assets), for the system info dialog. */
+  stations: StationDetail[];
   /** Whether Canonn or CDSR is (or is about to be) at war here — drives the State column's gun icon. */
   warState: FactionStateStatus;
   /** Tooltip text for the war icon (one line per contributing faction), or null if warState is null. */
@@ -277,12 +323,36 @@ interface WatchlistCachePayload {
  * reflects the submission immediately instead of waiting for Google to republish the registry.
  */
 export function rowWithAssignment(row: BgsRow, submission: ArchitectSubmission): BgsRow {
+  const recorded = submission.preferredFaction || null;
   return {
     ...row,
     architect: submission.architect || null,
     notAColony: submission.affiliation === AFFILIATION_NOT_A_COLONY,
-    preferredFaction: submission.preferredFaction || null,
+    preferredFaction: recorded ?? derivePreferredFaction(row),
+    preferredFactionRecorded: recorded !== null,
   };
+}
+
+/**
+ * The preferred faction for a system with no Architect Registry preference: a Canonn-named
+ * station makes it Canonn-led, and the lead is whichever of Canonn / Canonn Deep Space Research
+ * has more influence here (Canonn on a tie, or when neither is present). Null when no station
+ * is Canonn-named — the system has no preference at all.
+ */
+export function derivePreferredFaction(
+  row: Pick<BgsRow, 'hasCanonnStation' | 'canonnInfluence' | 'cdsrInfluence'>,
+): string | null {
+  if (!row.hasCanonnStation) {
+    return null;
+  }
+  const cdsr = row.cdsrInfluence ?? -1;
+  const canonn = row.canonnInfluence ?? -1;
+  return cdsr > canonn ? CDSR_FACTION : CANONN_FACTION;
+}
+
+/** Whether a station's name marks it as Canonn's — "canonn" anywhere in the name, any case. */
+export function isCanonnAsset(asset: CanonnAsset): boolean {
+  return /canonn/i.test(asset.name);
 }
 
 /**
@@ -757,6 +827,8 @@ export class CanonnBgsService {
       requiresCorroboration: false,
       describeMatch: describeSingleFaction,
     });
+    const hasCanonnStation = (record.canonn_assets ?? []).some(isCanonnAsset);
+    const recordedPreference = info?.preferredFaction || null;
     return {
       systemName: record.name,
       controllingFaction: record.controlling_minor_faction ?? null,
@@ -768,10 +840,27 @@ export class CanonnBgsService {
       // answer, so it's shown blank rather than inviting another Assign.
       architect: info?.architect || null,
       notAColony: info?.affiliation === AFFILIATION_NOT_A_COLONY,
-      preferredFaction: info?.preferredFaction || null,
+      preferredFaction: recordedPreference ?? derivePreferredFaction({ hasCanonnStation, canonnInfluence, cdsrInfluence }),
+      preferredFactionRecorded: recordedPreference !== null,
+      hasCanonnStation,
+      stationCount: record.station_count ?? null,
       factions: [...presences]
         .sort((a, b) => b.influence - a.influence)
         .map(p => ({ name: p.name, influencePercent: p.influence * 100 })),
+      stations: (record.canonn_assets ?? []).map(asset => ({
+        name: asset.name,
+        type: asset.type ?? null,
+        controllingFaction: asset.controlling_minor_faction ?? null,
+      })),
+      factionDetails: [...presences]
+        .sort((a, b) => b.influence - a.influence)
+        .map(p => ({
+          name: p.name,
+          allegiance: p.allegiance ?? null,
+          government: p.government ?? null,
+          influencePercent: p.influence * 100,
+          activeStates: p.active_states ?? [],
+        })),
       warState: war.status,
       warDetails: war.details,
       warIsCanonnVsCanonn: war.isCanonnVsCanonn,

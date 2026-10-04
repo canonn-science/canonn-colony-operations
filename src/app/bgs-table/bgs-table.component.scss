@@ -164,6 +164,12 @@
     overflow-wrap: break-word;
   }
 
+  // A preferred faction derived from a Canonn-named station, not recorded in the Architect
+  // Registry — greyed so it reads as inferred rather than agreed.
+  .bgs-preferred-derived {
+    color: var(--color-text-muted);
+  }
+
   thead th {
     position: sticky;
     top: 0;
@@ -406,12 +412,14 @@
   }
 }
 
-.bgs-watchlist-button {
+// The info button beside every System Name. Wears the Inara link colour, except for systems on
+// the Priority Watchlist (the "System Info" list), which get the accent colour to stand out.
+.bgs-info-button {
   padding: 0;
   margin-left: 6px;
   border: none;
   background: none;
-  color: var(--color-accent);
+  color: var(--color-link);
   cursor: pointer;
   vertical-align: middle;
   line-height: 1;
@@ -419,6 +427,10 @@
   &:hover,
   &:focus-visible {
     color: var(--color-link-hover);
+  }
+
+  &.bgs-info-button--listed {
+    color: var(--color-accent);
   }
 }
 
