@@ -23,6 +23,10 @@ export interface ExportRecord {
   needsRecon: boolean;
   bodyCount: number | null;
   population: number | null;
+  /** Stations in the system (all of them). */
+  stationCount: number | null;
+  /** The system's stations, the API's canonn_assets — name, type and controlling faction each. */
+  stations: { name: string; type: string | null; controllingFaction: string | null }[];
   x: number;
   y: number;
   z: number;
@@ -51,6 +55,8 @@ export function toExportRecord(row: BgsRow, nowMs: number): ExportRecord {
     needsRecon: priority.needsRecon,
     bodyCount: row.bodyCount,
     population: row.population,
+    stationCount: row.stationCount,
+    stations: row.stations.map(station => ({ name: station.name, type: station.type, controllingFaction: station.controllingFaction })),
     x: row.x,
     y: row.y,
     z: row.z,
@@ -98,7 +104,6 @@ const CSV_COLUMNS: readonly (keyof ExportRecord)[] = [
   'cdsrInfluence',
   'architect',
   'preferredFaction',
-  'factions',
   'warState',
   'electionState',
   'retreatState',
@@ -107,6 +112,7 @@ const CSV_COLUMNS: readonly (keyof ExportRecord)[] = [
   'needsRecon',
   'bodyCount',
   'population',
+  'stationCount',
   'x',
   'y',
   'z',
@@ -125,11 +131,8 @@ function sanitizeCsvString(value: string): string {
   return /^[\u0000-\u001F\s]*[=+\-@]/.test(value) ? `'${value}` : value;
 }
 
-/** Stringifies one {@link ExportRecord} field for CSV — the Factions column collapses to a single semicolon-separated cell. */
+/** Stringifies one {@link ExportRecord} field for CSV. */
 function csvValue(record: ExportRecord, column: keyof ExportRecord): string {
-  if (column === 'factions') {
-    return sanitizeCsvString(record.factions.map(f => `${f.name}: ${f.influencePercent.toFixed(1)}%`).join('; '));
-  }
   const value = record[column];
   if (value === null) {
     return '';

@@ -18,6 +18,11 @@ const ROW: BgsRow = {
   architect: null,
   notAColony: false,
   preferredFaction: null,
+  preferredFactionRecorded: false,
+  hasCanonnStation: false,
+  factionDetails: [],
+  stations: [],
+  stationCount: null,
   // Highest influence first, as the service builds them.
   factions: [
     { name: 'Local Lads', influencePercent: 60 },

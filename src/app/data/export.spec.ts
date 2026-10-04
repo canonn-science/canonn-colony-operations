@@ -11,6 +11,11 @@ function row(overrides: Partial<BgsRow> = {}): BgsRow {
     architect: null,
     notAColony: false,
     preferredFaction: null,
+    preferredFactionRecorded: false,
+    hasCanonnStation: false,
+    factionDetails: [],
+    stations: [],
+    stationCount: null,
     factions: [],
     warState: null,
     warDetails: null,
@@ -107,7 +112,7 @@ describe('exportFilename', () => {
 });
 
 describe('rowsToCsv', () => {
-  it('emits a header row plus one row per system, with a semicolon-joined Factions cell', () => {
+  it('emits a header row plus one row per system, without the factions or stations arrays', () => {
     const csv = rowsToCsv(
       [
         row({
@@ -124,9 +129,10 @@ describe('rowsToCsv', () => {
     );
     const lines = csv.split('\r\n');
     expect(lines[0]).toBe(
-      'systemName,controllingFaction,canonnInfluence,cdsrInfluence,architect,preferredFaction,factions,warState,electionState,retreatState,priorityTier,priorityScore,needsRecon,bodyCount,population,x,y,z,updatedAt,freshnessLabel,watchlistDetails',
+      'systemName,controllingFaction,canonnInfluence,cdsrInfluence,architect,preferredFaction,warState,electionState,retreatState,priorityTier,priorityScore,needsRecon,bodyCount,population,stationCount,x,y,z,updatedAt,freshnessLabel,watchlistDetails',
     );
-    expect(lines[1]).toContain('Varati,Canonn,42.5,,,,Canonn: 42.5%; Some Other Faction: 12.3%,');
+    expect(lines[1]).toContain('Varati,Canonn,42.5,,,,,');
+    expect(lines[1]).not.toContain('Some Other Faction');
   });
 
   it('quotes fields containing a comma and escapes embedded quotes', () => {
@@ -161,6 +167,13 @@ describe('rowsToCsv', () => {
     const csv = rowsToCsv([row({ x: -12.5 })], NOW);
     const cells = csv.split('\r\n')[1].split(',');
     expect(cells[15]).toBe('-12.5');
+  });
+
+  it('exports the station count but not the stations array', () => {
+    const csv = rowsToCsv([row({ stationCount: 2, stations: [{ name: 'Canonns Folly', type: 'Orbis Starport', controllingFaction: 'Canonn' }] })], NOW);
+    const cells = csv.split('\r\n')[1].split(',');
+    expect(cells[14]).toBe('2'); // stationCount
+    expect(csv).not.toContain('Canonns Folly');
   });
 
   it('renders null fields as empty cells', () => {

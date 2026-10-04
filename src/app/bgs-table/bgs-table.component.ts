@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, OnDestroy, computed, effect, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, HostListener, OnDestroy, computed, effect, inject, signal } from '@angular/core';
 import { DecimalPipe } from '@angular/common';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormControl, ReactiveFormsModule } from '@angular/forms';
@@ -141,9 +141,9 @@ function compareDescendingNullsLast(a: number | null, b: number | null): number 
 /**
  * The Priority column's comparator: the priority sort key (see {@link prioritySortKey})
  * decides the primary order, direction-sensitive as usual. When two rows tie on that key
- * (e.g. several P0 systems), population breaks the tie, then body count — a bigger, more
- * developed system matters more when priority is otherwise equal. This tiebreak direction
- * never flips with the column's own asc/desc toggle.
+ * (e.g. several P0 systems), station count breaks the tie (more stations, higher up), then
+ * population, then body count — a bigger, more developed system matters more when priority is
+ * otherwise equal. This tiebreak direction never flips with the column's own asc/desc toggle.
  */
 export function comparePriorityRows(a: BgsRow, b: BgsRow, direction: SortDirection, nowMs: number = Date.now()): number {
   const primary = compareColumnValues(
@@ -153,6 +153,10 @@ export function comparePriorityRows(a: BgsRow, b: BgsRow, direction: SortDirecti
   );
   if (primary !== 0) {
     return primary;
+  }
+  const stationCmp = compareDescendingNullsLast(a.stationCount, b.stationCount);
+  if (stationCmp !== 0) {
+    return stationCmp;
   }
   const populationCmp = compareDescendingNullsLast(a.population, b.population);
   if (populationCmp !== 0) {
@@ -340,12 +344,22 @@ export class BgsTableComponent implements OnDestroy {
       }
     }
     switch (this.factionFilterMode()) {
+      // A system counts if the faction is present there *or* is its preferred faction — which
+      // includes the grey, Canonn-station-derived preference that no registry row records.
       case 'canonn':
-        rows = rows.filter(row => row.factions.some(faction => this.canonnFactionNames.has(faction.name)));
+        rows = rows.filter(
+          row =>
+            row.factions.some(faction => this.canonnFactionNames.has(faction.name)) ||
+            this.canonnFactionNames.has(row.preferredFaction ?? ''),
+        );
         break;
       case 'name': {
         const key = this.factionFilterName().toLowerCase();
-        rows = rows.filter(row => row.factions.some(faction => faction.name.toLowerCase() === key));
+        rows = rows.filter(
+          row =>
+            row.factions.some(faction => faction.name.toLowerCase() === key) ||
+            (row.preferredFaction ?? '').toLowerCase() === key,
+        );
         break;
       }
     }
@@ -532,6 +546,38 @@ export class BgsTableComponent implements OnDestroy {
     }
   }
 
+  /**
+   * Left/right arrow keys page through the table, as the pager's Previous/Next buttons do. Ignored
+   * while a dialog is open, while typing or choosing in a field, with modifier keys held, or while
+   * a page is still loading.
+   */
+  @HostListener('window:keydown', ['$event'])
+  protected onArrowKey(event: KeyboardEvent): void {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') {
+      return;
+    }
+    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || event.defaultPrevented) {
+      return;
+    }
+    if (this.dialog.openDialogs.length > 0 || this.loading()) {
+      return;
+    }
+    const target = event.target;
+    if (target instanceof HTMLElement) {
+      const inField = target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName);
+      const inWidget = target.closest('[role="combobox"], [role="listbox"], [role="slider"]') !== null;
+      if (inField || inWidget) {
+        return;
+      }
+    }
+    event.preventDefault();
+    if (event.key === 'ArrowLeft') {
+      this.previousPage();
+    } else {
+      this.nextPage();
+    }
+  }
+
   protected previousPage(): void {
     if (this.pageIndex() === 0) {
       return;
@@ -705,7 +751,14 @@ export class BgsTableComponent implements OnDestroy {
       });
   }
 
-  /** Opens the read-only explanation for a Priority Watchlist entry, from the info button next to System Name. */
+  /** Hover/aria text for a row's info button: the Priority Watchlist reason if listed, otherwise plain system info. */
+  protected infoButtonTitle(row: BgsRow): string {
+    return row.watchlist.length > 0
+      ? `Why ${row.systemName} is on the Priority Watchlist`
+      : `System info for ${row.systemName}`;
+  }
+
+  /** Opens the system info dialog from the info button next to System Name, on every row. */
   protected openWatchlistDialog(row: BgsRow): void {
     const data: PriorityWatchlistDialogData = { row };
     this.dialog.open(PriorityWatchlistDialogComponent, {
@@ -800,6 +853,10 @@ export class BgsTableComponent implements OnDestroy {
         return;
       }
       this.typeaheadCache.set(match.name.toLowerCase(), match);
+      // Cleared here because ensureFullDataset returns early (without clearing it) when the
+      // dataset is already loaded — leaving the pager's buttons disabled. It sets the flag
+      // again itself if the dataset still has to load.
+      this.loading.set(false);
       this.selectAnchorPoint(toAnchorPoint(match));
     } catch {
       this.loading.set(false);
