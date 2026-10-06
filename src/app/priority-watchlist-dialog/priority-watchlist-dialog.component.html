@@ -17,9 +17,9 @@
     </section>
   }
 
-  <section class="info-card info-card--powerplay" aria-label="Powerplay">
-    <h3 class="info-heading">Powerplay</h3>
-    @if (powerplay) {
+  @if (powerplay) {
+    <section class="info-card info-card--powerplay" aria-label="Powerplay">
+      <h3 class="info-heading">Powerplay</h3>
       <div class="info-stats">
         <div class="info-stat">
           <span class="info-stat-label">Controlling power</span>
@@ -45,10 +45,8 @@
       @for (note of powerNotes; track $index) {
         <p class="info-details">{{ note }}</p>
       }
-    } @else {
-      <p class="info-empty">No power is pledged to this system.</p>
-    }
-  </section>
+    </section>
+  }
 
   <section class="info-stats" aria-label="System overview">
     <div class="info-stat info-stat--wide">
