@@ -1,14 +1,18 @@
 <h2 mat-dialog-title class="info-title">{{ row.systemName }}</h2>
 
 <mat-dialog-content>
-  @if (entries.length > 0) {
+  @if (entries.length > 0 || row.hasCanonnStation) {
     <section class="info-card">
       <h3 class="info-heading">Information</h3>
-      @for (entry of entries; track entry.faction) {
-        <div class="info-entry">
-          <p class="info-details">{{ entry.details }}</p>
-          <p class="info-target">Priority Watchlist target: #{{ entry.position }}</p>
-        </div>
+      @if (entries.length > 0) {
+        @for (entry of entries; track entry.faction) {
+          <div class="info-entry">
+            <p class="info-details">{{ entry.details }}</p>
+            <p class="info-target">Priority Watchlist target: #{{ entry.position }}</p>
+          </div>
+        }
+      } @else {
+        <p class="info-details">{{ canonnAssetsNote }}</p>
       }
     </section>
   }

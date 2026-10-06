@@ -27,4 +27,7 @@ export class PriorityWatchlistDialogComponent {
 
   protected readonly row = this.data.row;
   protected readonly entries = this.data.row.watchlist;
+  /** The note shown under Information when the system has Canonn-named assets but no System Info text. */
+  protected readonly canonnAssetsNote =
+    'This system contains stations named after Canonn that we want to be under Canonn control.';
 }

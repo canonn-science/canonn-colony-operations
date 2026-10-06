@@ -751,11 +751,9 @@ export class BgsTableComponent implements OnDestroy {
       });
   }
 
-  /** Hover/aria text for a row's info button: the Priority Watchlist reason if listed, otherwise plain system info. */
+  /** Hover/aria text for a row's info button. */
   protected infoButtonTitle(row: BgsRow): string {
-    return row.watchlist.length > 0
-      ? `Why ${row.systemName} is on the Priority Watchlist`
-      : `System info for ${row.systemName}`;
+    return `System Info for ${row.systemName}`;
   }
 
   /** Opens the system info dialog from the info button next to System Name, on every row. */
