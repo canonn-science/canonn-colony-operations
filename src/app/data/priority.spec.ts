@@ -492,6 +492,75 @@ describe('computePriorityAssessment', () => {
     expect(assessment.tier).toBe('P4');
   });
 
+  it('does not prioritise an election between Canonn and CDSR when they are level and no third faction is close', () => {
+    // Col 285 Sector KI-R c5-11: both of our factions on 37.3%, an election active — a contest
+    // between ourselves, which we're not bothered about, so it shouldn't surface as P0.
+    const assessment = computePriorityAssessment(
+      row({
+        preferredFaction: 'Canonn',
+        canonnInfluence: 37.3,
+        cdsrInfluence: 37.3,
+        controllingFaction: 'Canonn',
+        electionState: 'active',
+        factions: [
+          { name: 'Canonn', influencePercent: 37.3 },
+          { name: CDSR_FACTION, influencePercent: 37.3 },
+          { name: 'Sekenks Jet Posse', influencePercent: 15 },
+          { name: "Marquis du Ma'a", influencePercent: 10.4 },
+        ],
+        updatedAt: current,
+      }),
+      NOW,
+    );
+    expect(assessment.reasons.some(r => r.code === 'election-active' || r.code === 'canonn-cdsr-close')).toBe(false);
+    expect(assessment.tier).not.toBe('P0');
+  });
+
+  it('does not treat a war as ours when a not-a-colony system has a third-party preferred faction', () => {
+    // Kolhynichi: PRYSM is recorded as preferred, the system is "not a colony" (so Canonn is only
+    // a default lead), and a war is active. The agreement is that PRYSM holds it — not P0.
+    const assessment = computePriorityAssessment(
+      row({
+        preferredFaction: 'PRYSM Organization',
+        notAColony: true,
+        canonnInfluence: 10.1695,
+        cdsrInfluence: null,
+        controllingFaction: 'PRYSM Organization',
+        warState: 'active',
+        factions: [
+          { name: 'PRYSM Organization', influencePercent: 61.1166 },
+          { name: 'Canonn', influencePercent: 10.1695 },
+          { name: 'Jet Galactic Commodities', influencePercent: 10.1695 },
+          { name: 'Kolhynichi United', influencePercent: 4.0877 },
+        ],
+        updatedAt: current,
+      }),
+      NOW,
+    );
+    expect(assessment.reasons.some(r => r.code === 'war-active')).toBe(false);
+    expect(assessment.tier).not.toBe('P0');
+  });
+
+  it('still prioritises an election when a third faction is level with our own two', () => {
+    const assessment = computePriorityAssessment(
+      row({
+        preferredFaction: 'Canonn',
+        canonnInfluence: 30,
+        cdsrInfluence: 30,
+        controllingFaction: 'Rival',
+        electionState: 'active',
+        factions: [
+          { name: 'Rival', influencePercent: 31 },
+          { name: 'Canonn', influencePercent: 30 },
+          { name: CDSR_FACTION, influencePercent: 30 },
+        ],
+        updatedAt: current,
+      }),
+      NOW,
+    );
+    expect(assessment.reasons.some(r => r.code === 'election-active')).toBe(true);
+  });
+
   it('never ranks a push for control (gap-to-leader) when the lead faction is only assumed, not confirmed', () => {
     const assumed = computePriorityAssessment(
       row({

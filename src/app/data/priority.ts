@@ -222,9 +222,45 @@ function conflictReasons(row: BgsRow): PriorityReason[] {
   return reasons;
 }
 
+/**
+ * "Not a colony" with a third-party Preferred Faction recorded: Canonn only leads by default
+ * policy here (see {@link resolveScope}), and the agreement is that the third party controls the
+ * system. A war or election is then not ours to chase; a retreat still is.
+ */
+function isThirdPartyDefaultLead(row: BgsRow): boolean {
+  const preferred = row.preferredFaction?.trim();
+  if (!preferred || !row.notAColony) {
+    return false;
+  }
+  const key = factionKey(preferred);
+  return key !== CANONN_KEY && key !== CDSR_KEY;
+}
+
+/**
+ * Canonn and CDSR sit within 3% of each other as the top two factions, with no third faction
+ * level with or above them. The live race is then between our own two factions, and we don't
+ * mind which one holds control — so neither a war/election nor the close-race trigger should
+ * drive priority here.
+ */
+function isOwnFactionsContest(row: BgsRow): boolean {
+  if (row.canonnInfluence === null || row.cdsrInfluence === null) {
+    return false;
+  }
+  if (Math.abs(row.canonnInfluence - row.cdsrInfluence) >= 3) {
+    return false;
+  }
+  const lowerOfOurs = Math.min(row.canonnInfluence, row.cdsrInfluence);
+  const strongestThirdParty = row.factions.find(f => f.name !== CANONN_FACTION && f.name !== CDSR_FACTION)?.influencePercent ?? null;
+  return strongestThirdParty === null || strongestThirdParty < lowerOfOurs;
+}
+
 /** Every trigger below `scope`'s own scope gate, in FR-4's table order — conflict triggers plus everything that needs a confirmed or assumed lead faction. */
 function baseReasons(row: BgsRow, leadFaction: string, leadInfluence: number | null, weight: number, scope: PriorityScope): PriorityReason[] {
-  const reasons: PriorityReason[] = conflictReasons(row);
+  const ownFactionsContest = isOwnFactionsContest(row);
+  const thirdPartyDefault = isThirdPartyDefaultLead(row);
+  const reasons: PriorityReason[] = conflictReasons(row).filter(
+    r => !ownFactionsContest && (!thirdPartyDefault || r.code === 'retreat'),
+  );
 
   if (leadInfluence !== null && leadInfluence < 4) {
     reasons.push({ code: 'lead-below-4', label: 'Lead faction below 4% influence', score: 85 * weight });
@@ -244,7 +280,7 @@ function baseReasons(row: BgsRow, leadFaction: string, leadInfluence: number | n
     }
   }
 
-  if (row.canonnInfluence !== null && row.cdsrInfluence !== null && Math.abs(row.canonnInfluence - row.cdsrInfluence) < 3) {
+  if (!ownFactionsContest && row.canonnInfluence !== null && row.cdsrInfluence !== null && Math.abs(row.canonnInfluence - row.cdsrInfluence) < 3) {
     reasons.push({ code: 'canonn-cdsr-close', label: 'Canonn and CDSR within 3% of each other', score: 75 });
   }
   if (leadInfluence !== null && leadInfluence < 6) {
