@@ -166,6 +166,36 @@ interface BgsSystemRecord {
   station_count?: number | null;
   /** Every station in the system; those with "canonn" in their name make the system Canonn-led. */
   canonn_assets?: CanonnAsset[] | null;
+  /** Powers pledged to this system (empty or absent if none). */
+  power?: string[] | null;
+  /** The system's powerplay state, e.g. "Exploited", "Fortified", "Stronghold", "Unoccupied". */
+  power_state?: string | null;
+  /** The power holding control here, if any. */
+  controlling_power?: string | null;
+  /** Control progress towards the controlling power, as a 0-1 fraction. */
+  power_state_control_progress?: number | null;
+  /** Reinforcement points the controlling power has put into the system. */
+  power_state_reinforcement?: number | null;
+  /** Undermining points rival powers have put into the system. */
+  power_state_undermining?: number | null;
+  /** Progress of each power contesting the system, as a 0-1 fraction. */
+  power_conflict_progress?: { power: string; progress: number }[] | null;
+}
+
+/** The system's powerplay state, for the system info dialog. Null on a row means no power is recorded here. */
+export interface PowerplayDetail {
+  /** Every power pledged to the system, in the API's order. */
+  powers: string[];
+  /** The power holding control, or null if none does. */
+  controllingPower: string | null;
+  /** e.g. "Exploited", "Fortified", "Stronghold", "Unoccupied"; null if the API omits it. */
+  state: string | null;
+  /** Control progress as a percentage, 0-100; null if the API omits it. */
+  controlProgressPercent: number | null;
+  reinforcement: number | null;
+  undermining: number | null;
+  /** Contesting powers and their progress as a percentage, highest first. */
+  conflictProgress: { power: string; progressPercent: number }[];
 }
 
 /** A station or installation in a system, as the API's `canonn_assets` array describes it. */
@@ -295,6 +325,8 @@ export interface BgsRow {
   updatedAt: string | null;
   /** Priority Watchlist entries naming this system, if any — see {@link PriorityWatchlistEntry}. */
   watchlist: PriorityWatchlistEntry[];
+  /** The system's powerplay state, or null if no power is pledged here — shown in the system info dialog. */
+  powerplay: PowerplayDetail | null;
 }
 
 export interface BgsPage {
@@ -353,6 +385,25 @@ export function derivePreferredFaction(
 /** Whether a station's name marks it as Canonn's — "canonn" anywhere in the name, any case. */
 export function isCanonnAsset(asset: CanonnAsset): boolean {
   return /canonn/i.test(asset.name);
+}
+
+/** The powerplay state from an API record, or null if no power is pledged to the system. */
+function toPowerplay(record: BgsSystemRecord): PowerplayDetail | null {
+  const powers = record.power ?? [];
+  if (powers.length === 0 && !record.controlling_power) {
+    return null;
+  }
+  return {
+    powers,
+    controllingPower: record.controlling_power ?? null,
+    state: record.power_state ?? null,
+    controlProgressPercent: record.power_state_control_progress == null ? null : record.power_state_control_progress * 100,
+    reinforcement: record.power_state_reinforcement ?? null,
+    undermining: record.power_state_undermining ?? null,
+    conflictProgress: (record.power_conflict_progress ?? [])
+      .map(entry => ({ power: entry.power, progressPercent: entry.progress * 100 }))
+      .sort((a, b) => b.progressPercent - a.progressPercent),
+  };
 }
 
 /**
@@ -877,6 +928,7 @@ export class CanonnBgsService {
       z: record.z,
       updatedAt: record.updated_at ?? null,
       watchlist: watchlist.get(record.name) ?? [],
+      powerplay: toPowerplay(record),
     };
   }
 

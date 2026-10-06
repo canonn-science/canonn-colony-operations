@@ -45,6 +45,7 @@ const ROW: BgsRow = {
   z: 0,
   updatedAt: null,
   watchlist: [],
+  powerplay: null,
 };
 
 const REGISTRY: ArchitectRegistryRow[] = [

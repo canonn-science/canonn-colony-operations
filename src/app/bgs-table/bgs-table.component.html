@@ -348,7 +348,7 @@
                   <button
                     type="button"
                     class="bgs-info-button"
-                    [class.bgs-info-button--listed]="row.watchlist.length > 0 || row.hasCanonnStation"
+                    [class.bgs-info-button--listed]="row.watchlist.length > 0 || row.hasCanonnStation || row.powerplay !== null"
                     [title]="infoButtonTitle(row)"
                     [attr.aria-label]="infoButtonTitle(row)"
                     (click)="openWatchlistDialog(row)"

@@ -17,6 +17,39 @@
     </section>
   }
 
+  <section class="info-card info-card--powerplay" aria-label="Powerplay">
+    <h3 class="info-heading">Powerplay</h3>
+    @if (powerplay) {
+      <div class="info-stats">
+        <div class="info-stat">
+          <span class="info-stat-label">Controlling power</span>
+          <span class="info-stat-value">{{ powerplay.controllingPower ?? 'None' }}</span>
+        </div>
+        <div class="info-stat">
+          <span class="info-stat-label">State</span>
+          <span class="info-stat-value">{{ powerplay.state ?? '—' }}</span>
+        </div>
+        <div class="info-stat">
+          <span class="info-stat-label">Control progress</span>
+          <span class="info-stat-value">{{ powerplay.controlProgressPercent === null ? '—' : (powerplay.controlProgressPercent | number: '1.1-1') + '%' }}</span>
+        </div>
+        <div class="info-stat">
+          <span class="info-stat-label">Reinforcement / undermining</span>
+          <span class="info-stat-value">{{ powerplay.reinforcement ?? '—' }} / {{ powerplay.undermining ?? '—' }}</span>
+        </div>
+        <div class="info-stat info-stat--wide">
+          <span class="info-stat-label">Powers pledged</span>
+          <span class="info-stat-value">{{ powerplay.powers.join(', ') }}</span>
+        </div>
+      </div>
+      @for (note of powerNotes; track $index) {
+        <p class="info-details">{{ note }}</p>
+      }
+    } @else {
+      <p class="info-empty">No power is pledged to this system.</p>
+    }
+  </section>
+
   <section class="info-stats" aria-label="System overview">
     <div class="info-stat info-stat--wide">
       <span class="info-stat-label">Controlling faction</span>

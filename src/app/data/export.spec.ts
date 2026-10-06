@@ -33,6 +33,7 @@ function row(overrides: Partial<BgsRow> = {}): BgsRow {
     z: 0,
     updatedAt: null,
     watchlist: [],
+    powerplay: null,
     ...overrides,
   };
 }

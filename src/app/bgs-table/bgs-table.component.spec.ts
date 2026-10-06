@@ -35,6 +35,7 @@ function row(systemName: string): BgsRow {
     z: 0,
     updatedAt: null,
     watchlist: [],
+    powerplay: null,
   };
 }
 

@@ -3,6 +3,7 @@ import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MAT_DIALOG_DATA, MatDialogModule } from '@angular/material/dialog';
 import { BgsRow } from '../canonn-bgs.service';
+import { describePowerplayInfluence } from '../data/powerplay';
 
 /** The system whose info the dialog shows. */
 export interface PriorityWatchlistDialogData {
@@ -27,6 +28,9 @@ export class PriorityWatchlistDialogComponent {
 
   protected readonly row = this.data.row;
   protected readonly entries = this.data.row.watchlist;
+  protected readonly powerplay = this.data.row.powerplay;
+  /** The powerplay section's explanation paragraphs; empty when no power is pledged here. */
+  protected readonly powerNotes = this.powerplay ? describePowerplayInfluence(this.powerplay, this.row) : [];
   /** The note shown under Information when the system has Canonn-named assets but no System Info text. */
   protected readonly canonnAssetsNote =
     'This system contains stations named after Canonn that we want to be under Canonn control.';
