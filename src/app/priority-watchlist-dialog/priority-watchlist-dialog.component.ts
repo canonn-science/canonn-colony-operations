@@ -2,8 +2,13 @@ import { DecimalPipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MAT_DIALOG_DATA, MatDialogModule } from '@angular/material/dialog';
-import { BgsRow } from '../canonn-bgs.service';
+import { BgsRow, StationDetail } from '../canonn-bgs.service';
 import { describePowerplayInfluence } from '../data/powerplay';
+
+/** Stations with "canonn" in their name first (stable otherwise), matching {@link BgsRow.hasCanonnStation}. */
+function sortStationsCanonnFirst(stations: readonly StationDetail[]): StationDetail[] {
+  return [...stations].sort((a, b) => Number(/canonn/i.test(b.name)) - Number(/canonn/i.test(a.name)));
+}
 
 /** The system whose info the dialog shows. */
 export interface PriorityWatchlistDialogData {
@@ -27,6 +32,7 @@ export class PriorityWatchlistDialogComponent {
   private readonly data = inject<PriorityWatchlistDialogData>(MAT_DIALOG_DATA);
 
   protected readonly row = this.data.row;
+  protected readonly stations = sortStationsCanonnFirst(this.data.row.stations);
   protected readonly entries = this.data.row.watchlist;
   protected readonly powerplay = this.data.row.powerplay;
   /** The powerplay section's explanation paragraphs; empty when no power is pledged here. */

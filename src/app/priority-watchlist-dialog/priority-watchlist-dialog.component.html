@@ -69,7 +69,7 @@
 
   <section class="info-card info-card--table">
     <h3 class="info-heading">Canonn assets</h3>
-    @if (row.stations.length > 0) {
+    @if (stations.length > 0) {
       <div class="info-table-wrap">
         <table class="info-table">
           <thead>
@@ -80,7 +80,7 @@
             </tr>
           </thead>
           <tbody>
-            @for (station of row.stations; track station.name) {
+            @for (station of stations; track station.name) {
               <tr>
                 <td>{{ station.name }}</td>
                 <td>{{ station.type ?? '—' }}</td>
