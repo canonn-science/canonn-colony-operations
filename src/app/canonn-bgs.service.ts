@@ -199,8 +199,8 @@ interface BgsSystemRecord {
   avg_influence?: Record<string, number | null> | null;
   /** The tracked factions' active and pending states — an input to the priority score. */
   states?: PriorityStates[] | null;
-  /** The system's open conflicts — an input to the priority score. */
-  conflicts?: PriorityConflict[] | null;
+  /** The system's open conflicts — an input to the priority score, and the war/election tooltip's score/stake detail. */
+  conflicts?: ApiConflict[] | null;
   /** Hours since the system was last seen, as of the response's `generated_at`; null if never. */
   data_age_hours?: number | null;
   /** Number of astronomical bodies scanned in the system. */
@@ -247,6 +247,20 @@ export interface CanonnAsset {
   name: string;
   type: string;
   controlling_minor_faction: string | null;
+}
+
+/**
+ * An open conflict (war/civil war/election) from `/bgs/systems`, with the running score and
+ * stations at stake — {@link PriorityConflict} leaves these out since the priority score
+ * doesn't need them, but the war/election tooltip does.
+ */
+interface ApiConflict extends PriorityConflict {
+  /** Days won by `faction_a`/`faction_b` as last observed; null until reported (e.g. while pending). */
+  won_days_a?: number | null;
+  won_days_b?: number | null;
+  /** The station each side is contesting; '' if the API has none recorded for that side. */
+  stake_a?: string | null;
+  stake_b?: string | null;
 }
 
 /** `/bgs/systems?view=all`: every system, and the constants the client needs to score and sort them. */
@@ -556,6 +570,43 @@ function describeConflict(corroborators: readonly MinorFactionPresence[]): strin
  */
 function describeSingleFaction(corroborators: readonly MinorFactionPresence[]): string {
   return corroborators.map(c => `${c.name} (${(c.influence * 100).toFixed(1)}%)`).join(', ');
+}
+
+/** Order-independent, case-insensitive key for a pair of faction names — matches a conflict entry to its corroborators regardless of which side the API called `faction_a`/`faction_b`. */
+function conflictPairKey(a: string, b: string): string {
+  return [a, b].map(name => name.trim().toLowerCase()).sort().join('|');
+}
+
+/**
+ * {@link describeConflict}'s "X vs Y", plus the running score (days won by each side) and the
+ * stations at stake, when `conflicts` has a matching open entry. Falls back to the plain "X vs
+ * Y" when there's no match (a 3+-way state, which the conflicts table doesn't model) or the
+ * match has no score/stake recorded yet (e.g. a conflict just gone active).
+ */
+function describeConflictWithStake(
+  corroborators: readonly MinorFactionPresence[],
+  conflicts: readonly ApiConflict[],
+): string {
+  const base = describeConflict(corroborators);
+  if (corroborators.length !== 2) {
+    return base;
+  }
+  const key = conflictPairKey(corroborators[0].name, corroborators[1].name);
+  const match = conflicts.find(
+    c => c.faction_a && c.faction_b && conflictPairKey(c.faction_a, c.faction_b) === key,
+  );
+  if (!match) {
+    return base;
+  }
+  const lines = [base];
+  if (match.won_days_a != null && match.won_days_b != null) {
+    lines.push(`  ${match.faction_a}: ${match.won_days_a} — ${match.faction_b}: ${match.won_days_b}`);
+  }
+  const stakes = [match.stake_a, match.stake_b].filter((s): s is string => !!s && s.trim() !== '');
+  if (stakes.length > 0) {
+    lines.push(`  Stations at stake: ${stakes.join(', ')}`);
+  }
+  return lines.join('\n');
 }
 
 /**
@@ -1004,8 +1055,19 @@ export class CanonnBgsService {
     const canonnInfluence = this.influencePercent(presences, CANONN_FACTION);
     const cdsrInfluence = this.influencePercent(presences, CDSR_FACTION);
     const snapshotTime = record.last_seen ?? null;
-    const war = summarizeFactionState(record.name, snapshotTime, presences, { states: WAR_STATES, requiresCorroboration: true });
-    const election = summarizeFactionState(record.name, snapshotTime, presences, { states: ELECTION_STATES, requiresCorroboration: true });
+    const conflicts = record.conflicts ?? [];
+    const warConflicts = conflicts.filter(c => WAR_STATES.has(normalizeStateName(c.war_type ?? '')));
+    const electionConflicts = conflicts.filter(c => ELECTION_STATES.has(normalizeStateName(c.war_type ?? '')));
+    const war = summarizeFactionState(record.name, snapshotTime, presences, {
+      states: WAR_STATES,
+      requiresCorroboration: true,
+      describeMatch: corroborators => describeConflictWithStake(corroborators, warConflicts),
+    });
+    const election = summarizeFactionState(record.name, snapshotTime, presences, {
+      states: ELECTION_STATES,
+      requiresCorroboration: true,
+      describeMatch: corroborators => describeConflictWithStake(corroborators, electionConflicts),
+    });
     const retreat = summarizeFactionState(record.name, snapshotTime, presences, {
       states: RETREAT_STATES,
       requiresCorroboration: false,
@@ -1028,7 +1090,7 @@ export class CanonnBgsService {
       controller: record.controlling_faction ?? null,
       trends: record.trend ?? {},
       states: record.states ?? [],
-      conflicts: record.conflicts ?? [],
+      conflicts,
       dataAgeHours: record.data_age_hours ?? null,
     };
     return {

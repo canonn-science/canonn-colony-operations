@@ -276,6 +276,61 @@ describe('CanonnBgsService record mapping', () => {
     expect(row.factionDetails[0].activeStates).toEqual(['War']);
   });
 
+  it("adds the open conflict's running score and stations at stake to the war tooltip", async () => {
+    api.records = [
+      systemWithPresences(
+        'Varati Ring',
+        [
+          { name: 'Canonn', influence: 0.4, active_states: ['War'] },
+          { name: 'Other Faction', influence: 0.4, active_states: ['War'] },
+        ],
+        {
+          conflicts: [
+            {
+              war_type: 'war',
+              status: 'active',
+              faction_a: 'Other Faction',
+              faction_b: 'Canonn',
+              won_days_a: 1,
+              won_days_b: 2,
+              stake_a: 'Alpha Station',
+              stake_b: 'Beta Outpost',
+              involves_us: true,
+              first_seen: '2026-01-01T00:00:00Z',
+            },
+          ],
+        },
+      ),
+    ];
+
+    const [row] = await rows();
+
+    expect(row.warDetails).toBe(
+      'War: Canonn vs Other Faction\n  Other Faction: 1 — Canonn: 2\n  Stations at stake: Alpha Station, Beta Outpost',
+    );
+  });
+
+  it('leaves the plain "X vs Y" tooltip when no conflict entry matches, or the score/stake is missing', async () => {
+    api.records = [
+      systemWithPresences(
+        'Varati Ring',
+        [
+          { name: 'Canonn', influence: 0.4, active_states: ['War'] },
+          { name: 'Other Faction', influence: 0.4, active_states: ['War'] },
+        ],
+        {
+          conflicts: [
+            { war_type: 'election', status: 'active', faction_a: 'Canonn', faction_b: 'Other Faction' },
+          ],
+        },
+      ),
+    ];
+
+    const [row] = await rows();
+
+    expect(row.warDetails).toBe('War: Canonn vs Other Faction');
+  });
+
   it('does not log an anomaly for an unpaired pending retreat (R9 only applies to two-party states)', async () => {
     const warnSpy = vi.spyOn(logger, 'warn');
     const logSpy = vi.spyOn(logger, 'log');
