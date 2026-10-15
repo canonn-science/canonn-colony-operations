@@ -77,6 +77,16 @@ type SortDirection = OrderDirection;
 type ArchitectFilterMode = 'all' | 'none' | 'name';
 /** The Faction quick filter's modes: everyone, only Canonn-affiliated systems, or one named faction. */
 type FactionFilterMode = 'all' | 'canonn' | 'name';
+/** The Preference quick filter's modes: everyone, either Canonn faction, Canonn only, or CDSR only. */
+type PreferenceFilterMode = 'all' | 'any-canonn' | 'canonn' | 'cdsr';
+
+/** The Preference quick filter's options, in display order. */
+const PREFERENCE_FILTER_OPTIONS: ReadonlyArray<{ value: PreferenceFilterMode; label: string }> = [
+  { value: 'all', label: 'Any' },
+  { value: 'any-canonn', label: 'Any Canonn' },
+  { value: 'canonn', label: CANONN_FACTION },
+  { value: 'cdsr', label: CDSR_FACTION },
+];
 
 /** Columns whose first click sorts the largest values first. */
 const MOST_FIRST_COLUMNS: ReadonlySet<SortColumn> = new Set<SortColumn>(['priority', 'canonnChange', 'cdsrChange']);
@@ -200,6 +210,8 @@ export class BgsTableComponent implements OnDestroy {
   private readonly architectFilterName = signal('');
   protected readonly factionFilterMode = signal<FactionFilterMode>('all');
   private readonly factionFilterName = signal('');
+  protected readonly preferenceFilterOptions = PREFERENCE_FILTER_OPTIONS;
+  protected readonly preferenceFilterMode = signal<PreferenceFilterMode>('all');
 
   /** Text boxes for the Architect/Faction quick filters — separate from the *applied* filter, so typing doesn't filter until submitted. */
   protected readonly architectFilterControl = new FormControl('', { nonNullable: true });
@@ -252,6 +264,17 @@ export class BgsTableComponent implements OnDestroy {
         break;
       case 'name':
         filters.hasFaction = [this.factionFilterName()];
+        break;
+    }
+    switch (this.preferenceFilterMode()) {
+      case 'any-canonn':
+        filters.preferredFaction = [CANONN_FACTION, CDSR_FACTION];
+        break;
+      case 'canonn':
+        filters.preferredFaction = [CANONN_FACTION];
+        break;
+      case 'cdsr':
+        filters.preferredFaction = [CDSR_FACTION];
         break;
     }
     return filters;
@@ -562,6 +585,11 @@ export class BgsTableComponent implements OnDestroy {
     }
     this.factionFilterMode.set('name');
     this.factionFilterName.set(name);
+    this.pageIndex.set(0);
+  }
+
+  protected setPreferenceFilterMode(mode: PreferenceFilterMode): void {
+    this.preferenceFilterMode.set(mode);
     this.pageIndex.set(0);
   }
 

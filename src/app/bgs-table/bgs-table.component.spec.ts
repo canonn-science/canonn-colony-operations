@@ -277,6 +277,8 @@ describe('BgsTableComponent over the whole list', () => {
         row('Election', { electionState: 'pending' }),
         row('Mine', { architect: 'Cmdr Example', factions: [{ name: 'Canonn', influencePercent: 40 }] }),
         row('Outpost', { hasCanonnStation: true }),
+        row('CanonnPref', { preferredFaction: 'Canonn' }),
+        row('CdsrPref', { preferredFaction: 'Canonn Deep Space Research' }),
       ]);
     });
 
@@ -287,7 +289,7 @@ describe('BgsTableComponent over the whole list', () => {
       expect(total()).toBe(2);
 
       component['toggleWarElection']();
-      expect(total()).toBe(5);
+      expect(total()).toBe(7);
     });
 
     it('narrows to systems with a Canonn-named station', () => {
@@ -295,24 +297,38 @@ describe('BgsTableComponent over the whole list', () => {
       expect(visibleNames()).toEqual(['Outpost']);
 
       component['toggleCanonnStation']();
-      expect(total()).toBe(5);
+      expect(total()).toBe(7);
     });
 
     it('narrows to systems with no architect, or to a named one', () => {
       component['setArchitectFilterMode']('none');
-      expect(visibleNames()).toEqual(['Election', 'Outpost', 'Quiet']);
+      expect(visibleNames()).toEqual(['CanonnPref', 'CdsrPref', 'Election', 'Outpost', 'Quiet']);
 
       component['architectFilterControl'].setValue('cmdr example');
       component['applyArchitectFilterName']();
       expect(visibleNames()).toEqual(['Mine']);
 
       component['setArchitectFilterMode']('all');
-      expect(total()).toBe(5);
+      expect(total()).toBe(7);
+    });
+
+    it('narrows to systems by preferred faction', () => {
+      component['setPreferenceFilterMode']('canonn');
+      expect(visibleNames()).toEqual(['CanonnPref']);
+
+      component['setPreferenceFilterMode']('cdsr');
+      expect(visibleNames()).toEqual(['CdsrPref']);
+
+      component['setPreferenceFilterMode']('any-canonn');
+      expect(visibleNames()).toEqual(['CanonnPref', 'CdsrPref']);
+
+      component['setPreferenceFilterMode']('all');
+      expect(total()).toBe(7);
     });
 
     it('narrows to Canonn-affiliated systems, or to a named faction', () => {
       component['setFactionFilterMode']('canonn');
-      expect(visibleNames()).toEqual(['Mine']);
+      expect(visibleNames()).toEqual(['CanonnPref', 'CdsrPref', 'Mine']);
 
       component['factionFilterControl'].setValue('Nobody Here');
       component['applyFactionFilterName']();

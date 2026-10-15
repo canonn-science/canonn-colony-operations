@@ -50,6 +50,8 @@ export interface RowFilters {
   architect?: string | null;
   /** Systems where any of these factions is present or is the preferred faction. */
   hasFaction?: readonly string[];
+  /** Systems whose preferred faction is one of these (exact, case-insensitive). */
+  preferredFaction?: readonly string[];
 }
 
 type SortValue = number | string | null;
@@ -169,6 +171,7 @@ export function sortRowsByName(rows: readonly BgsRow[]): BgsRow[] {
 /** The rows that pass every filter that's on, in their given order. `nowMs` dates the needs-recon test. */
 export function filterRows(rows: readonly BgsRow[], filters: RowFilters, nowMs: number): BgsRow[] {
   const wanted = (filters.hasFaction ?? []).map(name => name.trim().toLowerCase()).filter(Boolean);
+  const wantedPreferred = (filters.preferredFaction ?? []).map(name => name.trim().toLowerCase()).filter(Boolean);
   const architect = (filters.architect ?? '').trim().toLowerCase();
   return rows.filter(row => {
     if (filters.warElection && row.warState === null && row.electionState === null) {
@@ -195,6 +198,9 @@ export function filterRows(rows: readonly BgsRow[], filters: RowFilters, nowMs: 
       if (!wanted.some(name => present.has(name) || name === preferred)) {
         return false;
       }
+    }
+    if (wantedPreferred.length > 0 && !wantedPreferred.includes((row.preferredFaction ?? '').toLowerCase())) {
+      return false;
     }
     return true;
   });

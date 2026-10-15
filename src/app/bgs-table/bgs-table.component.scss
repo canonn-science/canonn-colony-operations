@@ -80,6 +80,13 @@
   gap: 18px;
   margin-bottom: 20px;
   flex-wrap: wrap;
+
+  // Shrink the dropdowns (Page size, Preference) to the same height as the filter chip
+  // buttons beside them — Material's default outline field is much taller.
+  --mat-form-field-container-height: 30px;
+  --mat-form-field-container-vertical-padding: 5px;
+  --mat-form-field-container-text-size: 0.8rem;
+  --mat-form-field-container-text-line-height: 1.4;
 }
 
 .bgs-filter-group {
@@ -128,6 +135,10 @@
 
 .bgs-page-size-field {
   width: 80px;
+}
+
+.bgs-preference-field {
+  width: 220px;
 }
 
 .bgs-error {

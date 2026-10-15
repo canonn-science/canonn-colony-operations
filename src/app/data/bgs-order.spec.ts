@@ -178,6 +178,7 @@ describe('filterRows', () => {
     row('mine', { architect: 'Cmdr Example' }),
     row('canonn here', { factions: [{ name: 'Canonn', influencePercent: 50 }] }),
     row('canonn preferred', { preferredFaction: 'Canonn Deep Space Research' }),
+    row('canonn-proper preferred', { preferredFaction: 'Canonn' }),
     row('other faction', { factions: [{ name: 'Some Faction', influencePercent: 50 }] }),
     row('stale', { updatedAt: '2026-08-01T00:00:00Z' }),
     row('fresh', { updatedAt: '2026-08-07T11:00:00Z' }),
@@ -216,7 +217,17 @@ describe('filterRows', () => {
   it('keeps a system where the faction is present or is the preferred faction, matching any of several', () => {
     const result = names(filterRows(rows, { hasFaction: ['canonn', 'Canonn Deep Space Research'] }, NOW));
 
-    expect(result).toEqual(['canonn here', 'canonn preferred']);
+    expect(result).toEqual(['canonn here', 'canonn preferred', 'canonn-proper preferred']);
+  });
+
+  it('keeps systems whose preferred faction is exactly one of the given names, case-insensitively', () => {
+    expect(names(filterRows(rows, { preferredFaction: ['canonn'] }, NOW))).toEqual(['canonn-proper preferred']);
+    expect(names(filterRows(rows, { preferredFaction: ['Canonn Deep Space Research'] }, NOW))).toEqual([
+      'canonn preferred',
+    ]);
+    expect(
+      names(filterRows(rows, { preferredFaction: ['Canonn', 'Canonn Deep Space Research'] }, NOW)),
+    ).toEqual(['canonn preferred', 'canonn-proper preferred']);
   });
 
   it('combines filters with AND', () => {
