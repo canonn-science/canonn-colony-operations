@@ -47,6 +47,12 @@ export function daysElapsed(updatedAtMs: number, nowMs: number): number {
   return Math.max(0, Math.floor(ms / (24 * 60 * 60 * 1000)));
 }
 
+/** Whole hours elapsed between `updatedAtMs` and `nowMs`, clamped to zero for future timestamps. */
+function hoursElapsed(updatedAtMs: number, nowMs: number): number {
+  const ms = nowMs - updatedAtMs;
+  return Math.max(0, Math.floor(ms / (60 * 60 * 1000)));
+}
+
 function bandFor(days: number): FreshnessBand {
   if (days === 0) {
     return 'current';
@@ -68,10 +74,14 @@ const BAND_WORDS: Record<FreshnessBand, string> = {
   unknown: 'Update time unknown',
 };
 
-/** Short pill label: rounds down throughout, and clamps at a year to bound the pill width. */
-function formatLabel(days: number): string {
+/**
+ * Short pill label: rounds down throughout, and clamps at a year to bound the pill width.
+ * Same-day (`days === 0`) reads as whole hours, e.g. "1 hr" / "4 hrs", since "now" doesn't
+ * say how stale a same-day reading actually is.
+ */
+function formatLabel(days: number, hours: number): string {
   if (days === 0) {
-    return 'now';
+    return hours === 0 ? 'now' : `${hours} hr${hours === 1 ? '' : 's'}`;
   }
   if (days <= 6) {
     return `${days}d`;
@@ -83,10 +93,10 @@ function formatLabel(days: number): string {
   return `${weeks}w`;
 }
 
-/** The age phrase used in the accessible name, e.g. "just now", "5 days ago", "3 weeks ago". */
-function formatAgeWords(days: number): string {
+/** The age phrase used in the accessible name, e.g. "just now", "4 hours ago", "3 weeks ago". */
+function formatAgeWords(days: number, hours: number): string {
   if (days === 0) {
-    return 'just now';
+    return hours === 0 ? 'just now' : `${hours} hour${hours === 1 ? '' : 's'} ago`;
   }
   if (days === 1) {
     return '1 day ago';
@@ -119,12 +129,13 @@ export function computeFreshness(raw: string | null | undefined, nowMs: number =
   }
 
   const days = daysElapsed(updatedAtMs, nowMs);
+  const hours = hoursElapsed(updatedAtMs, nowMs);
   const band = bandFor(days);
-  const label = formatLabel(days);
+  const label = formatLabel(days, hours);
   return {
     band,
     label,
-    accessibleName: `${BAND_WORDS[band]}, updated ${formatAgeWords(days)}`,
+    accessibleName: `${BAND_WORDS[band]}, updated ${formatAgeWords(days, hours)}`,
     title: raw!.trim(),
     sortValue: updatedAtMs,
   };

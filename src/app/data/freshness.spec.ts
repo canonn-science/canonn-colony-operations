@@ -1,6 +1,7 @@
 import { computeFreshness, parseUpdatedAt } from './freshness';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+const HOUR_MS = 60 * 60 * 1000;
 const NOW = Date.parse('2026-08-07T12:00:00Z');
 
 function agoRaw(ms: number): string {
@@ -46,6 +47,17 @@ describe('computeFreshness', () => {
   it('is "current" up to the boundary just under one day old', () => {
     const info = computeFreshness(agoRaw(DAY_MS - 1000), NOW);
     expect(info.band).toBe('current');
+  });
+
+  it('labels a same-day reading in whole hours rather than "now" once an hour has passed', () => {
+    expect(computeFreshness(agoRaw(HOUR_MS), NOW).label).toBe('1 hr');
+    expect(computeFreshness(agoRaw(4 * HOUR_MS), NOW).label).toBe('4 hrs');
+    expect(computeFreshness(agoRaw(23 * HOUR_MS), NOW).label).toBe('23 hrs');
+  });
+
+  it('states the hour count in the accessible name for a same-day reading', () => {
+    expect(computeFreshness(agoRaw(4 * HOUR_MS), NOW).accessibleName).toBe('Current, updated 4 hours ago');
+    expect(computeFreshness(agoRaw(HOUR_MS), NOW).accessibleName).toBe('Current, updated 1 hour ago');
   });
 
   it('is "oneTick" at exactly one day elapsed', () => {
