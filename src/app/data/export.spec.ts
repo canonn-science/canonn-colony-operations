@@ -1,5 +1,6 @@
 import { BgsRow } from '../canonn-bgs.service';
 import { exportFilename, rowsToCsv, toExportRecord } from './export';
+import { NO_PRIORITY } from './priority';
 
 /** A minimal, fully-populated row — tests override only the fields they care about. */
 function row(overrides: Partial<BgsRow> = {}): BgsRow {
@@ -33,6 +34,7 @@ function row(overrides: Partial<BgsRow> = {}): BgsRow {
     z: 0,
     updatedAt: null,
     watchlist: [],
+    priority: NO_PRIORITY,
     powerplay: null,
     ...overrides,
   };
@@ -78,10 +80,27 @@ describe('toExportRecord', () => {
     expect(record.z).toBe(3);
   });
 
-  it('folds in the same priority tier and freshness label the table displays', () => {
-    const record = toExportRecord(row({ updatedAt: '2026-08-07 12:00:00+00' }), NOW);
-    expect(record.priorityTier).toBeTruthy();
+  it("folds in the API's priority tier and score, and the freshness label the table displays", () => {
+    const record = toExportRecord(
+      row({
+        updatedAt: '2026-08-07 12:00:00+00',
+        priority: { ...NO_PRIORITY, tier: 'P1', score: 70, needsRecon: false },
+      }),
+      NOW,
+    );
+    expect(record.priorityTier).toBe('P1');
+    expect(record.priorityScore).toBe(70);
+    expect(record.needsRecon).toBe(false);
     expect(record.freshnessLabel).toBe('now');
+  });
+
+  it('flags a reading two or more days old as needing recon, whatever the API said when it scored it', () => {
+    const record = toExportRecord(
+      row({ updatedAt: '2026-08-05 12:00:00+00', priority: { ...NO_PRIORITY, tier: 'P3', score: 25, needsRecon: false } }),
+      NOW,
+    );
+    expect(record.needsRecon).toBe(true);
+    expect(record.priorityScore).toBe(25);
   });
 
   it('is null when the system carries no Priority Watchlist entries', () => {

@@ -1,48 +1,34 @@
-import { Injectable } from '@angular/core';
-import { BUILD_ID } from './build-info';
+import { Injectable, signal } from '@angular/core';
 import {
   AFFILIATION_NOT_A_COLONY,
   ARCHITECT_FORM_ACTION,
   ArchitectSubmission,
   buildArchitectFormBody,
 } from './data/architect-form';
-import {
-  ArchitectInfo,
-  ArchitectRegistryRow,
-  buildArchitectInfoMap,
-} from './data/architect-registry';
+import { ArchitectInfo, ArchitectRegistryRow } from './data/architect-registry';
 import { isHomeSystem } from './data/home-systems';
 import { logger } from './data/logger';
-import { PriorityWatchlistEntry, buildWatchlistMap, parseWatchlistTsv } from './data/priority-watchlist';
+import {
+  BgsConfig,
+  PriorityAssessment,
+  PriorityConflict,
+  PriorityInputs,
+  PriorityStates,
+  PriorityTrend,
+  cleanCell,
+  computePriority,
+} from './data/priority';
+import { PriorityWatchlistEntry } from './data/priority-watchlist';
 
 /** Base URL for the Canonn cloud-function query API. */
 const QUERY_BASE = 'https://us-central1-canonn-api-236217.cloudfunctions.net/query';
-const BGS_ENDPOINT = `${QUERY_BASE}/canonnbgs`;
-const ARCHITECTS_ENDPOINT = `${QUERY_BASE}/canonnbgs/architects`;
+/**
+ * The BGS tracker's read API. Asked for `view=all`, it sends every system's summary in one
+ * gzipped response, together with the `config` the priority score needs; `slim=1` leaves out
+ * the sparkline-and-history fields this table never draws.
+ */
+const BGS_SYSTEMS_URL = `${QUERY_BASE}/bgs/systems?view=all&slim=1`;
 const TYPEAHEAD_ENDPOINT = `${QUERY_BASE}/typeahead`;
-
-/**
- * The architects Cloud Function endpoint is itself backed by this published Google Sheet
- * (a Form-response registry) — fetching it directly is a single request instead of paging
- * through the Cloud Function, so it's tried first. It's unauthenticated, published-to-web
- * Google infrastructure with no documented stability contract (no ETag/Last-Modified either,
- * so there's no cheap way to check for changes without fetching), so any failure — CORS,
- * network, an unrecognised layout — just falls back to the Cloud Function API below.
- */
-const ARCHITECTS_SHEET_URL =
-  'https://docs.google.com/spreadsheets/d/e/2PACX-1vS5TMBu2KJQBaNqSBropWVdXUcOjz-wJe57e8h4pRPzr7zZ066yjO-H2Z7hqZe-fOVSpzy-7dzAqU2z/pub?gid=1448295597&single=true&output=tsv';
-/** Short timeout for the sheet fetch — it's a fast-path attempt, not a resilient one; fail quick and fall back. */
-const ARCHITECTS_SHEET_TIMEOUT_MS = 8000;
-
-/**
- * The Priority Watchlist — a different published tab of the same spreadsheet the Architect
- * Registry lives in (see {@link ARCHITECTS_SHEET_URL}'s doc comment; same caveats apply). Unlike
- * the registry, there's no Cloud Function fallback for this one — a failed fetch just means no
- * watchlist entries are applied this session, rather than blocking the table.
- */
-const WATCHLIST_SHEET_URL =
-  'https://docs.google.com/spreadsheets/d/e/2PACX-1vS5TMBu2KJQBaNqSBropWVdXUcOjz-wJe57e8h4pRPzr7zZ066yjO-H2Z7hqZe-fOVSpzy-7dzAqU2z/pub?gid=668117854&single=true&output=tsv';
-const WATCHLIST_SHEET_TIMEOUT_MS = 8000;
 
 /** Default per-request timeout for remote API calls (ms). */
 const HTTP_TIMEOUT_MS = 20000;
@@ -51,23 +37,15 @@ const HTTP_RETRY_COUNT = 2;
 /** Timeout for a form submission (ms). Not retried — see {@link CanonnBgsService.submitAssignment}. */
 const FORM_SUBMIT_TIMEOUT_MS = 15000;
 
-/**
- * Fallback page size, used only until the API's actual page size is known (see
- * {@link CanonnBgsService.resolvePageSize}); also the client's default page-size selection.
- * Not authoritative — the Cloud Function's real per-page record count isn't a fixed contract
- * (issue #7) and is inferred per-session from page 0's response instead.
- */
-export const BGS_PAGE_SIZE = 50;
+/** Timeout for the whole-list fetch (ms) — one response carrying every system, so well over a page's worth. */
+const SYSTEMS_TIMEOUT_MS = 60000;
+/** How long a loaded list is served before the next request for it fetches a fresh one (ms). */
+export const SYSTEMS_MAX_AGE_MS = 10 * 60 * 1000;
 
-/** localStorage key the architect registry is persisted under. */
-const ARCHITECTS_CACHE_KEY = 'canonn-bgs:architects-cache:v2';
-/** How long the architect registry is cached before it's refetched. */
-const ARCHITECTS_CACHE_DURATION_MS = 2 * 60 * 60 * 1000;
-
-/** localStorage key the priority watchlist is persisted under. */
-const WATCHLIST_CACHE_KEY = 'canonn-bgs:watchlist-cache:v1';
-/** How long the priority watchlist is cached before it's refetched. */
-const WATCHLIST_CACHE_DURATION_MS = 2 * 60 * 60 * 1000;
+/** localStorage key a just-submitted assignment is remembered under until the API's list shows it. */
+const RECENT_ASSIGNMENTS_KEY = 'canonn-bgs:recent-assignments:v1';
+/** How long a submission is remembered at most — the tracker normally picks a sheet row up well within this. */
+const RECENT_ASSIGNMENT_TTL_MS = 2 * 60 * 60 * 1000;
 
 export const CANONN_FACTION = 'Canonn';
 export const CDSR_FACTION = 'Canonn Deep Space Research';
@@ -131,6 +109,52 @@ function pendingEntryStateName(entry: string | PendingStateEntry): string {
   return typeof entry === 'string' ? entry : entry.state;
 }
 
+/**
+ * A state as the API sends it: `{State: "War"}` for an active/recovering one, `{State, Trend}`
+ * for a pending one. A bare string is also accepted. Read only through {@link stateEntryName}.
+ */
+type ApiStateEntry = string | { State?: string | null; state?: string | null; Trend?: number; trend?: number };
+
+/** The state name out of an API state entry, whichever shape it came in as; null if it has none. */
+function stateEntryName(entry: ApiStateEntry | null | undefined): string | null {
+  if (typeof entry === 'string') {
+    return entry || null;
+  }
+  return entry?.State ?? entry?.state ?? null;
+}
+
+/** The non-empty state names in an API state list. */
+function stateNames(entries: readonly ApiStateEntry[] | null | undefined): string[] {
+  return (entries ?? []).map(stateEntryName).filter((name): name is string => name !== null);
+}
+
+/** One faction in a system, as the API's `minor_faction_presences` array describes it. */
+interface ApiFactionPresence {
+  name: string;
+  allegiance?: string | null;
+  government?: string | null;
+  /** 0-1 fraction. */
+  influence: number;
+  state?: string | null;
+  active_states?: ApiStateEntry[] | null;
+  pending_states?: ApiStateEntry[] | null;
+  recovering_states?: ApiStateEntry[] | null;
+}
+
+/** The latest architect submission for a system, as recorded by the tracker. */
+interface ApiArchitect {
+  architect_name?: string | null;
+  canonn_architect?: string | null;
+  preferred_faction?: string | null;
+}
+
+/** A Priority Watchlist entry as the tracker holds it (`bgs_overrides`). */
+interface ApiOverride {
+  faction?: string | null;
+  position?: number | null;
+  details?: string | null;
+}
+
 interface MinorFactionPresence {
   name: string;
   allegiance?: string;
@@ -150,15 +174,27 @@ interface MinorFactionPresence {
   state?: string;
 }
 
+/** One system's summary from `/bgs/systems`; only the fields this app reads are listed. */
 interface BgsSystemRecord {
   name: string;
-  controlling_minor_faction: string | null;
-  minor_faction_presences?: MinorFactionPresence[];
+  controlling_faction: string | null;
+  /** Every faction in the newest snapshot, highest influence first. Empty for a system the tracker has no snapshot of. */
+  minor_faction_presences?: ApiFactionPresence[] | null;
   x: number;
   y: number;
   z: number;
-  /** When this system's data was last updated, e.g. "2026-08-06 19:52:24+00". Not strict ISO 8601 — see {@link parseUpdatedAt}. */
-  updated_at?: string | null;
+  /** When the tracker last saw this system, as ISO 8601 with a `Z`. */
+  last_seen?: string | null;
+  architect?: ApiArchitect | null;
+  bgs_override?: ApiOverride | null;
+  /** Each tracked faction's influence history — an input to the priority score. */
+  trend?: Record<string, PriorityTrend> | null;
+  /** The tracked factions' active and pending states — an input to the priority score. */
+  states?: PriorityStates[] | null;
+  /** The system's open conflicts — an input to the priority score. */
+  conflicts?: PriorityConflict[] | null;
+  /** Hours since the system was last seen, as of the response's `generated_at`; null if never. */
+  data_age_hours?: number | null;
   /** Number of astronomical bodies scanned in the system. */
   body_count?: number | null;
   population?: number | null;
@@ -205,17 +241,13 @@ export interface CanonnAsset {
   controlling_minor_faction: string | null;
 }
 
-interface BgsPageResponse {
-  count: number;
-  from: number;
-  results: BgsSystemRecord[];
-}
-
-interface ArchitectRecord {
-  'System Name': string;
-  'Architect Name': string;
-  'Canonn Architect': string;
-  'Preferred Faction': string;
+/** `/bgs/systems?view=all`: every system, and the constants the client needs to score and sort them. */
+interface BgsAllResponse {
+  data: BgsSystemRecord[];
+  total: number;
+  /** When the server built this, UTC with no `Z`. */
+  generated_at?: string;
+  config?: BgsConfig;
 }
 
 /** A typeahead match, with the coordinates needed to sort by distance from it. */
@@ -321,48 +353,68 @@ export interface BgsRow {
   x: number;
   y: number;
   z: number;
-  /** Raw `updated_at` from the API, as-is; the Freshness column derives its pill from this. */
+  /** The API's `last_seen` for the system (ISO 8601); the Freshness column derives its pill from this. */
   updatedAt: string | null;
   /** Priority Watchlist entries naming this system, if any — see {@link PriorityWatchlistEntry}. */
   watchlist: PriorityWatchlistEntry[];
+  /**
+   * The system's work-priority score, as of when the list was loaded. Its staleness flags go out
+   * of date as the clock ticks — read it through `currentPriority` for those.
+   */
+  priority: PriorityAssessment;
+  /**
+   * What {@link priority} was computed from, so it can be worked out again when something it
+   * reads changes (an architect assigned). Absent on a row that wasn't built from the API.
+   */
+  priorityContext?: { inputs: PriorityInputs; config: BgsConfig };
   /** The system's powerplay state, or null if no power is pledged here — shown in the system info dialog. */
   powerplay: PowerplayDetail | null;
 }
 
-export interface BgsPage {
-  page: number;
+/** Every system, as loaded: the rows, when the server built them, and the constants it scored them with. */
+export interface BgsSnapshot {
   rows: BgsRow[];
-  totalCount: number;
-  totalPages: number;
+  /** The server's timestamp for this list (UTC, no `Z`). */
+  generatedAt: string | null;
+  config: BgsConfig;
 }
 
-interface ArchitectsCachePayload {
-  fetchedAt: number;
-  /** The build that wrote this cache; a mismatch (a new build was deployed) invalidates it. */
-  buildId: string;
-  rows: ArchitectRegistryRow[];
-}
+/** What of an assignment the table needs: the system and the three answers that describe it. */
+export type AssignmentAnswers = Pick<ArchitectSubmission, 'systemName' | 'architect' | 'affiliation' | 'preferredFaction'>;
 
-interface WatchlistCachePayload {
-  fetchedAt: number;
-  /** The build that wrote this cache; a mismatch (a new build was deployed) invalidates it. */
-  buildId: string;
-  entries: PriorityWatchlistEntry[];
+/** An assignment kept in localStorage until the API's own list shows it. */
+interface RecentAssignment extends AssignmentAnswers {
+  /** When it was submitted (epoch ms). */
+  at: number;
 }
 
 /**
  * A copy of `row` showing the architect details of a just-submitted assignment, so the table
- * reflects the submission immediately instead of waiting for Google to republish the registry.
+ * reflects the submission immediately instead of waiting for the tracker to pick the sheet row up.
  */
-export function rowWithAssignment(row: BgsRow, submission: ArchitectSubmission): BgsRow {
+export function rowWithAssignment(row: BgsRow, submission: AssignmentAnswers): BgsRow {
   const recorded = submission.preferredFaction || null;
-  return {
+  const assigned: BgsRow = {
     ...row,
     architect: submission.architect || null,
     notAColony: submission.affiliation === AFFILIATION_NOT_A_COLONY,
     preferredFaction: recorded ?? derivePreferredFaction(row),
     preferredFactionRecorded: recorded !== null,
   };
+  const context = row.priorityContext;
+  if (!context) {
+    return assigned;
+  }
+  // The preferred faction decides how the system is scored, so the new answer re-scores it.
+  const inputs: PriorityInputs = {
+    ...context.inputs,
+    architect: {
+      architect_name: submission.architect || null,
+      canonn_architect: submission.affiliation || null,
+      preferred_faction: submission.preferredFaction || null,
+    },
+  };
+  return { ...assigned, priority: computePriority(inputs, context.config), priorityContext: { ...context, inputs } };
 }
 
 /**
@@ -407,46 +459,6 @@ function toPowerplay(record: BgsSystemRecord): PowerplayDetail | null {
 }
 
 /**
- * Parses the architects Google Form response sheet: tab-separated, header row first, columns
- * matched by name (not position) so a reordered/added column in the sheet doesn't break this.
- * Rows are returned in sheet order (oldest first), which is what makes "the last row wins"
- * and the dialog's "most recent answer" defaults work. Returns an empty array (which the
- * caller treats as "couldn't use this") if the expected columns aren't found at all.
- */
-function parseArchitectsTsv(text: string): ArchitectRegistryRow[] {
-  const rows: ArchitectRegistryRow[] = [];
-  const lines = text.replace(/\r\n/g, '\n').split('\n').filter(line => line.length > 0);
-  if (lines.length === 0) {
-    return rows;
-  }
-
-  const header = lines[0].split('\t');
-  const systemNameIndex = header.indexOf('System Name');
-  const architectNameIndex = header.indexOf('Architect Name');
-  const preferredFactionIndex = header.indexOf('Preferred Faction');
-  // Optional: the Cloud Function's copy of the data has it, but it's not load-bearing for the table.
-  const affiliationIndex = header.indexOf('Canonn Architect');
-  if (systemNameIndex === -1 || architectNameIndex === -1 || preferredFactionIndex === -1) {
-    return rows;
-  }
-
-  for (let i = 1; i < lines.length; i++) {
-    const cells = lines[i].split('\t');
-    const systemName = cells[systemNameIndex]?.trim();
-    if (!systemName) {
-      continue;
-    }
-    rows.push({
-      systemName,
-      architect: cells[architectNameIndex]?.trim() ?? '',
-      affiliation: affiliationIndex === -1 ? '' : (cells[affiliationIndex]?.trim() ?? ''),
-      preferredFaction: cells[preferredFactionIndex]?.trim() ?? '',
-    });
-  }
-  return rows;
-}
-
-/**
  * Logs a structured anomaly record (issue #6, R8) for a faction whose legacy `state` or
  * `active_states`/`pending_states` disagree with what the modern arrays can actually
  * corroborate. This is a general "is Spansh's legacy field still drifting from the modern
@@ -457,8 +469,8 @@ function parseArchitectsTsv(text: string): ArchitectRegistryRow[] {
  * evidence isn't lost. `severity: 'info'` is used for R9's unpaired-pending case, which the
  * issue calls out as lower-severity than an outright R2/R3 rejection — dev-only either way,
  * this never reaches render. `snapshot_time` stands in for the issue's `timestamps.factions`
- * (this API's per-record `updated_at` is the closest coherent equivalent we get); there's no
- * `id64` in this API's system records at all, so it's omitted rather than fabricated.
+ * (this API's per-record `last_seen` is the closest coherent equivalent we get); there's no
+ * `id64` in this API's system records at all (`system_address` is a string there), so it's omitted rather than fabricated.
  */
 function logConflictStateAnomaly(
   systemName: string,
@@ -682,47 +694,102 @@ function summarizeFactionState(
   return { status: null, details: null, isCanonnVsCanonn: false };
 }
 
+/** A faction as {@link summarizeFactionState} reads it: the API's state entries flattened to plain state names. */
+function toPresence(presence: ApiFactionPresence): MinorFactionPresence {
+  return {
+    name: presence.name,
+    allegiance: presence.allegiance ?? undefined,
+    government: presence.government ?? undefined,
+    influence: presence.influence,
+    state: presence.state ?? undefined,
+    active_states: stateNames(presence.active_states),
+    pending_states: stateNames(presence.pending_states),
+    recovering_states: stateNames(presence.recovering_states),
+  };
+}
+
+/** The registry-shaped architect details a system record carries, or undefined if it has none. */
+function architectFromApi(architect: ApiArchitect | null | undefined): ArchitectInfo | undefined {
+  if (!architect) {
+    return undefined;
+  }
+  return {
+    architect: architect.architect_name?.trim() ?? '',
+    affiliation: architect.canonn_architect?.trim() ?? '',
+    preferredFaction: architect.preferred_faction?.trim() ?? '',
+  };
+}
+
+/** An answer as a registry row. */
+function toRegistryRow(answers: AssignmentAnswers): ArchitectRegistryRow {
+  return {
+    systemName: answers.systemName,
+    architect: answers.architect,
+    affiliation: answers.affiliation,
+    preferredFaction: answers.preferredFaction,
+  };
+}
+
+/** The watchlist entry a system record carries (the tracker's copy of the sheet), as a list for {@link BgsRow.watchlist}. */
+function overrideEntries(record: BgsSystemRecord): PriorityWatchlistEntry[] {
+  const override = record.bgs_override;
+  if (!override?.faction || !override.position || override.position < 1) {
+    return [];
+  }
+  return [{ systemName: record.name, faction: override.faction, position: override.position, details: override.details ?? '' }];
+}
+
 /**
- * Fetches the Canonn BGS dataset: a paged table of systems with their controlling
- * faction, Canonn/CDSR influence, and (via a separate lookup) architect details.
+ * Fetches the Canonn BGS dataset from the tracker's `/bgs/systems` API: every system with its
+ * controlling faction, every faction's influence and states, stations, powerplay, architect and
+ * watchlist entry, in one response — so there is a single network request behind the table.
  *
- * Caching:
- * - The search token is fetched once per session and reused for every page.
- * - Each fetched page is memoised in memory so revisiting it (Previous/Next) is free.
- * - The architect registry is fetched once (across all its pages) and persisted in
- *   localStorage for {@link ARCHITECTS_CACHE_DURATION_MS}, since it changes far less
- *   often than BGS influence.
+ * The list is loaded once; the table sorts, filters and pages it itself, and scores each system
+ * with {@link computePriority} using the constants the response carries. It is never served once
+ * it is {@link SYSTEMS_MAX_AGE_MS} old: the next {@link getSystems} after that fetches again.
+ *
+ * The Architect Registry the Assign dialog suggests from is built from the same response (one
+ * row per system, the tracker's latest). An assignment submitted here is remembered locally for
+ * {@link RECENT_ASSIGNMENT_TTL_MS}, so it shows straight away and survives a reload until the
+ * API's own list has caught up with the sheet.
  */
 @Injectable({ providedIn: 'root' })
 export class CanonnBgsService {
-  private tokenPromise?: Promise<string>;
-  private readonly pagePromises = new Map<number, Promise<BgsPage>>();
-  /** The API's actual per-page record count, learned from page 0's response — see {@link resolvePageSize}. */
-  private discoveredPageSize: number | null = null;
-  private registryPromise?: Promise<ArchitectRegistryRow[]>;
-  /** The resolved registry, once loaded — what {@link recordAssignment} appends to. */
-  private registryRows: ArchitectRegistryRow[] | null = null;
-  /** When the registry was fetched, preserved across local edits so it still expires on schedule. */
-  private registryFetchedAt = 0;
-  /** {@link registryRows} collapsed to one entry per system; rebuilt when the registry changes. */
-  private architectInfo: Map<string, ArchitectInfo> | null = null;
-  private watchlistPromise?: Promise<Map<string, PriorityWatchlistEntry[]>>;
+  /** The list as last loaded (patched for local assignments); stays until a newer one replaces it. */
+  private systemsPromise?: Promise<BgsSnapshot>;
+  /** When {@link systemsPromise} was fetched (epoch ms). */
+  private loadedAt = 0;
+  /** A fetch that is under way, so overlapping callers share one request. */
+  private inFlight?: Promise<BgsSnapshot>;
+  private readonly loadLogLines = signal<readonly string[]>([]);
+  /** What loading the list is really doing, in order — for a progress display while it waits. */
+  readonly loadLog = this.loadLogLines.asReadonly();
+  /** One registry row per system with an architect on record, plus assignments made here; built as the list loads. */
+  private registryRows: ArchitectRegistryRow[] = [];
 
-  /** Fetches a page of BGS results (0-based), from cache if it's already been loaded. */
-  getPage(page: number): Promise<BgsPage> {
-    let promise = this.pagePromises.get(page);
-    if (!promise) {
-      promise = this.fetchPage(page);
-      this.pagePromises.set(page, promise);
-      // Don't poison the cache with a failed fetch — let a later call retry.
-      promise.catch(() => this.pagePromises.delete(page));
+  /**
+   * Every system: from memory if it was loaded less than {@link SYSTEMS_MAX_AGE_MS} ago,
+   * otherwise fetched afresh. A failed fetch isn't remembered, so the next call tries again.
+   */
+  getSystems(): Promise<BgsSnapshot> {
+    if (this.systemsPromise && Date.now() - this.loadedAt < SYSTEMS_MAX_AGE_MS) {
+      return this.systemsPromise;
     }
-    return promise;
-  }
-
-  /** Fire-and-forget prefetch for the next page; failures are silent and just retried on real navigation. */
-  prefetchPage(page: number): void {
-    void this.getPage(page).catch(() => {});
+    if (!this.inFlight) {
+      const fetching = this.fetchSystems().then(snapshot => {
+        this.systemsPromise = Promise.resolve(snapshot);
+        this.loadedAt = Date.now();
+        return snapshot;
+      });
+      this.inFlight = fetching;
+      const done = () => {
+        if (this.inFlight === fetching) {
+          this.inFlight = undefined;
+        }
+      };
+      fetching.then(done, done);
+    }
+    return this.inFlight;
   }
 
   /** Name-suggestion + coordinate lookup, for the "sort by distance from system" search box. */
@@ -731,16 +798,13 @@ export class CanonnBgsService {
   }
 
   /**
-   * Every Architect Registry submission, oldest first — the Assign dialog's source for
-   * architect-name suggestions and for what a known architect last answered.
+   * The Architect Registry — what the tracker holds as each system's latest answer, plus
+   * assignments made here — for the Assign dialog's architect-name suggestions and for what a
+   * known architect last answered. Waits for the system list it is read from.
    */
-  getArchitectRegistry(): Promise<readonly ArchitectRegistryRow[]> {
-    return this.getRegistry();
-  }
-
-  /** Every Priority Watchlist entry, grouped by system — what {@link toRow} attaches to each {@link BgsRow}. */
-  getPriorityWatchlist(): Promise<ReadonlyMap<string, PriorityWatchlistEntry[]>> {
-    return this.getWatchlist();
+  async getArchitectRegistry(): Promise<readonly ArchitectRegistryRow[]> {
+    await this.getSystems();
+    return [...this.registryRows];
   }
 
   /**
@@ -772,99 +836,138 @@ export class CanonnBgsService {
 
   /**
    * Folds a just-submitted assignment into everything already loaded — the registry, the
-   * system lookup derived from it, the memoised BGS pages and the persisted cache — so the
-   * new architect shows up straight away, and survives a reload, without waiting for Google
-   * to republish the sheet. The cache's original fetch time is kept, so the authoritative
-   * data is still refetched on the usual schedule.
+   * memoised system list — and remembers it in localStorage, so the new architect shows up
+   * straight away, and survives a reload, without waiting for the tracker to pick up the sheet row.
    */
   recordAssignment(submission: ArchitectSubmission): void {
-    const row: ArchitectRegistryRow = {
+    const answers: AssignmentAnswers = {
       systemName: submission.systemName,
       architect: submission.architect,
       affiliation: submission.affiliation,
       preferredFaction: submission.preferredFaction,
     };
+    this.registryRows.push(toRegistryRow(answers));
+    this.writeRecentAssignments([
+      ...this.readRecentAssignments().filter(a => a.systemName !== answers.systemName),
+      { ...answers, at: Date.now() },
+    ]);
 
-    if (this.registryRows) {
-      this.registryRows.push(row);
-      this.architectInfo = buildArchitectInfoMap(this.registryRows);
-      this.writeArchitectsCache(this.registryRows, this.registryFetchedAt);
-    }
-
-    for (const [page, promise] of [...this.pagePromises]) {
-      const patched = promise.then(result => ({
-        ...result,
-        rows: result.rows.map(r => (r.systemName === submission.systemName ? rowWithAssignment(r, submission) : r)),
+    const loaded = this.systemsPromise;
+    if (loaded) {
+      const patched = loaded.then(snapshot => ({
+        ...snapshot,
+        rows: snapshot.rows.map(r => (r.systemName === answers.systemName ? rowWithAssignment(r, answers) : r)),
       }));
-      patched.catch(() => this.pagePromises.delete(page));
-      this.pagePromises.set(page, patched);
+      patched.catch(() => {
+        if (this.systemsPromise === patched) {
+          this.systemsPromise = undefined;
+        }
+      });
+      this.systemsPromise = patched;
     }
   }
 
-  /**
-   * Fetches every page of the BGS dataset (reusing whatever's already cached) and
-   * returns all rows concatenated in their natural order. Used when the table switches
-   * into a full-dataset sort (by distance or by influence), which needs every row.
-   * `onProgress`, if given, is called as each page arrives so the UI can show a meter.
-   */
-  async getAllRows(onProgress?: (loaded: number, total: number) => void): Promise<BgsRow[]> {
-    const first = await this.getPage(0);
-    const total = first.totalPages;
-    const pagesByIndex = new Array<BgsRow[]>(total);
-    let loaded = 0;
-    onProgress?.(0, total);
-    await Promise.all(
-      Array.from({ length: total }, (_unused, page) =>
-        this.getPage(page).then(result => {
-          pagesByIndex[page] = result.rows;
-          loaded++;
-          onProgress?.(loaded, total);
-        }),
-      ),
+  private log(message: string): void {
+    this.loadLogLines.update(lines => [...lines, message]);
+  }
+
+  private async fetchSystems(): Promise<BgsSnapshot> {
+    this.loadLogLines.set([]);
+    this.log('Asking the BGS tracker for every system in one go...');
+    const response = await this.resilientGet<BgsAllResponse>(BGS_SYSTEMS_URL, SYSTEMS_TIMEOUT_MS);
+    this.log(`Received ${response.data.length} systems.`);
+    const { config } = response;
+    if (!config) {
+      // An API that predates `view=all` answers with its first page and no constants to score with.
+      throw new Error('The BGS API did not send its client configuration.');
+    }
+    if (response.data.length < response.total) {
+      throw new Error(`The BGS API sent ${response.data.length} of ${response.total} systems.`);
+    }
+    this.log('Scoring work priority for each system...');
+    const placeholders = new Set(config.placeholders);
+    const rows = response.data.map(record => this.toRow(record, config, placeholders));
+    this.registryRows = response.data.flatMap(record => {
+      const architect = record.architect;
+      return architect && (architect.architect_name || architect.canonn_architect || architect.preferred_faction)
+        ? [toRegistryRow({
+            systemName: record.name,
+            architect: architect.architect_name ?? '',
+            affiliation: architect.canonn_architect ?? '',
+            preferredFaction: architect.preferred_faction ?? '',
+          })]
+        : [];
+    });
+    this.applyRecentAssignments(rows);
+    this.log(
+      `Done. ${rows.filter(r => r.architect !== null).length} systems have an architect on record, ` +
+        `${rows.filter(r => r.watchlist.length > 0).length} are on the watchlist.`,
     );
-    return pagesByIndex.flat();
-  }
-
-  private async fetchPage(page: number): Promise<BgsPage> {
-    const [token, architects, watchlist] = await Promise.all([this.getToken(), this.getArchitectInfo(), this.getWatchlist()]);
-    const response = await this.resilientGet<BgsPageResponse>(`${BGS_ENDPOINT}/${token}/${page}`);
-    const pageSize = this.resolvePageSize(page, response.results.length);
-    return {
-      page,
-      rows: response.results.map(record => this.toRow(record, architects, watchlist)),
-      totalCount: response.count,
-      totalPages: Math.max(1, Math.ceil(response.count / pageSize)),
-    };
+    return { rows, generatedAt: response.generated_at ?? null, config };
   }
 
   /**
-   * The API's per-page record count isn't a fixed contract (issue #7: it changed from 50 to
-   * 500 without notice, and {@link BGS_PAGE_SIZE} being hardcoded against the old value made
-   * every page past the new, much-shorter last page 404). Page 0 is guaranteed full unless the
-   * whole dataset fits on one page — in which case the size doesn't matter, since `totalPages`
-   * comes out to 1 either way — so it's the one response trusted to reveal the true page size,
-   * and that's reused for every later page. A later page's own `results.length` is deliberately
-   * *not* used for this, since a later page fetched on its own (e.g. a prefetch) may be the
-   * short last page and would otherwise be mistaken for the true page size — if page 0 hasn't
-   * been observed yet, this sticks to the default instead.
+   * Re-applies assignments made in this browser that the list doesn't show yet (the tracker
+   * replicates the sheet on its own schedule), and forgets the ones it has caught up with or
+   * that have outlived {@link RECENT_ASSIGNMENT_TTL_MS}. Edits `rows` in place.
    */
-  private resolvePageSize(page: number, resultsLength: number): number {
-    if (page === 0 && resultsLength > 0) {
-      this.discoveredPageSize = resultsLength;
+  private applyRecentAssignments(rows: BgsRow[]): void {
+    const kept: RecentAssignment[] = [];
+    for (const assignment of this.readRecentAssignments()) {
+      const index = rows.findIndex(r => r.systemName === assignment.systemName);
+      if (index < 0) {
+        continue;
+      }
+      const caughtUp = (rows[index].architect ?? '').toLowerCase() === assignment.architect.trim().toLowerCase();
+      if (caughtUp) {
+        continue;
+      }
+      rows[index] = rowWithAssignment(rows[index], assignment);
+      this.registryRows.push(toRegistryRow(assignment));
+      kept.push(assignment);
     }
-    return this.discoveredPageSize ?? BGS_PAGE_SIZE;
+    this.writeRecentAssignments(kept);
+  }
+
+  private readRecentAssignments(): RecentAssignment[] {
+    try {
+      const raw = localStorage.getItem(RECENT_ASSIGNMENTS_KEY);
+      const parsed: unknown = raw ? JSON.parse(raw) : [];
+      if (!Array.isArray(parsed)) {
+        return [];
+      }
+      const now = Date.now();
+      return parsed.filter(
+        (a): a is RecentAssignment =>
+          !!a &&
+          typeof a.systemName === 'string' &&
+          typeof a.architect === 'string' &&
+          typeof a.at === 'number' &&
+          now - a.at < RECENT_ASSIGNMENT_TTL_MS,
+      );
+    } catch {
+      return [];
+    }
+  }
+
+  private writeRecentAssignments(assignments: readonly RecentAssignment[]): void {
+    try {
+      localStorage.setItem(RECENT_ASSIGNMENTS_KEY, JSON.stringify(assignments));
+    } catch {
+      // Storage full/unavailable (e.g. private browsing) — this session's rows still show it.
+    }
   }
 
   private toRow(
     record: BgsSystemRecord,
-    architects: ReadonlyMap<string, ArchitectInfo>,
-    watchlist: ReadonlyMap<string, PriorityWatchlistEntry[]>,
+    config: BgsConfig,
+    placeholders: ReadonlySet<string>,
   ): BgsRow {
-    const presences = record.minor_faction_presences ?? [];
-    const info = architects.get(record.name);
+    const presences = (record.minor_faction_presences ?? []).map(toPresence);
+    const info = architectFromApi(record.architect);
     const canonnInfluence = this.influencePercent(presences, CANONN_FACTION);
     const cdsrInfluence = this.influencePercent(presences, CDSR_FACTION);
-    const snapshotTime = record.updated_at ?? null;
+    const snapshotTime = record.last_seen ?? null;
     const war = summarizeFactionState(record.name, snapshotTime, presences, { states: WAR_STATES, requiresCorroboration: true });
     const election = summarizeFactionState(record.name, snapshotTime, presences, { states: ELECTION_STATES, requiresCorroboration: true });
     const retreat = summarizeFactionState(record.name, snapshotTime, presences, {
@@ -880,16 +983,29 @@ export class CanonnBgsService {
     });
     const hasCanonnStation = (record.canonn_assets ?? []).some(isCanonnAsset);
     const recordedPreference = info?.preferredFaction || null;
+    const priorityInputs: PriorityInputs = {
+      architect: info
+        ? { architect_name: info.architect, canonn_architect: info.affiliation, preferred_faction: info.preferredFaction }
+        : null,
+      override: record.bgs_override ?? null,
+      current: presences.map(p => ({ name: p.name, influence: p.influence })),
+      controller: record.controlling_faction ?? null,
+      trends: record.trend ?? {},
+      states: record.states ?? [],
+      conflicts: record.conflicts ?? [],
+      dataAgeHours: record.data_age_hours ?? null,
+    };
     return {
       systemName: record.name,
-      controllingFaction: record.controlling_minor_faction ?? null,
+      controllingFaction: record.controlling_faction ?? null,
       canonnInfluence,
       cdsrInfluence,
       // Spansh's colonisation flags are unreliable, so any system without a registered
       // architect is assignable — never blocked behind a "Not a colony" indicator. A
       // registry row that itself answers "not a colony" is different: that's a confirmed
       // answer, so it's shown blank rather than inviting another Assign.
-      architect: info?.architect || null,
+      // A placeholder ("N/A", "Don't know"…) is no answer, the same as a blank cell.
+      architect: cleanCell(info?.architect, placeholders) || null,
       notAColony: info?.affiliation === AFFILIATION_NOT_A_COLONY,
       preferredFaction: recordedPreference ?? derivePreferredFaction({ hasCanonnStation, canonnInfluence, cdsrInfluence }),
       preferredFactionRecorded: recordedPreference !== null,
@@ -926,8 +1042,10 @@ export class CanonnBgsService {
       x: record.x,
       y: record.y,
       z: record.z,
-      updatedAt: record.updated_at ?? null,
-      watchlist: watchlist.get(record.name) ?? [],
+      updatedAt: record.last_seen ?? null,
+      watchlist: overrideEntries(record),
+      priority: computePriority(priorityInputs, config),
+      priorityContext: { inputs: priorityInputs, config },
       powerplay: toPowerplay(record),
     };
   }
@@ -935,180 +1053,6 @@ export class CanonnBgsService {
   private influencePercent(presences: readonly MinorFactionPresence[], factionName: string): number | null {
     const presence = presences.find(p => p.name === factionName);
     return presence ? presence.influence * 100 : null;
-  }
-
-  private getToken(): Promise<string> {
-    if (!this.tokenPromise) {
-      this.tokenPromise = this.resilientGet<string>(BGS_ENDPOINT);
-    }
-    return this.tokenPromise;
-  }
-
-  /** The system -> architect lookup the table's rows are built from, derived from the registry once. */
-  private async getArchitectInfo(): Promise<ReadonlyMap<string, ArchitectInfo>> {
-    const rows = await this.getRegistry();
-    if (!this.architectInfo) {
-      this.architectInfo = buildArchitectInfoMap(rows);
-    }
-    return this.architectInfo;
-  }
-
-  /** Loads the architect registry at most once per session (see class doc). */
-  private getRegistry(): Promise<ArchitectRegistryRow[]> {
-    if (!this.registryPromise) {
-      this.registryPromise = this.loadRegistry().catch(error => {
-        // Clear the memo so a later page fetch can retry instead of failing forever.
-        this.registryPromise = undefined;
-        throw error;
-      });
-    }
-    return this.registryPromise;
-  }
-
-  private async loadRegistry(): Promise<ArchitectRegistryRow[]> {
-    const cached = this.readArchitectsCache();
-    if (cached) {
-      this.registryRows = cached.rows;
-      this.registryFetchedAt = cached.fetchedAt;
-      return cached.rows;
-    }
-
-    const rows = (await this.loadRegistryFromSheet()) ?? (await this.loadRegistryFromApi());
-    this.registryRows = rows;
-    this.registryFetchedAt = Date.now();
-    this.writeArchitectsCache(rows, this.registryFetchedAt);
-    return rows;
-  }
-
-  /**
-   * Fast path: fetch the published Google Sheet directly (one request) and parse it
-   * ourselves. Returns null — never throws — on any failure, so the caller falls back
-   * to {@link loadRegistryFromApi} unconditionally.
-   */
-  private async loadRegistryFromSheet(): Promise<ArchitectRegistryRow[] | null> {
-    try {
-      const text = await this.fetchTextOnce(ARCHITECTS_SHEET_URL, ARCHITECTS_SHEET_TIMEOUT_MS);
-      const rows = parseArchitectsTsv(text);
-      if (rows.length === 0) {
-        return null;
-      }
-      return rows;
-    } catch (error) {
-      logger.warn('Architects sheet fetch failed, falling back to the Cloud Function API.', error);
-      return null;
-    }
-  }
-
-  /** Reliable path: page through the Cloud Function's own architects endpoint. */
-  private async loadRegistryFromApi(): Promise<ArchitectRegistryRow[]> {
-    const rows: ArchitectRegistryRow[] = [];
-    for (let page = 0; ; page++) {
-      const records = await this.resilientGet<ArchitectRecord[]>(`${ARCHITECTS_ENDPOINT}/${page}`);
-      if (records.length === 0) {
-        break;
-      }
-      for (const record of records) {
-        rows.push({
-          systemName: record['System Name'],
-          architect: record['Architect Name'],
-          affiliation: record['Canonn Architect'] ?? '',
-          preferredFaction: record['Preferred Faction'],
-        });
-      }
-    }
-    return rows;
-  }
-
-  /** Loads the priority watchlist at most once per session, grouped by system; never throws — see {@link loadWatchlist}. */
-  private getWatchlist(): Promise<Map<string, PriorityWatchlistEntry[]>> {
-    if (!this.watchlistPromise) {
-      this.watchlistPromise = this.loadWatchlist();
-    }
-    return this.watchlistPromise;
-  }
-
-  private async loadWatchlist(): Promise<Map<string, PriorityWatchlistEntry[]>> {
-    const cached = this.readWatchlistCache();
-    if (cached) {
-      return buildWatchlistMap(cached.entries);
-    }
-
-    const entries = await this.loadWatchlistFromSheet();
-    this.writeWatchlistCache(entries, Date.now());
-    return buildWatchlistMap(entries);
-  }
-
-  /**
-   * Fetches the published Priority Watchlist sheet directly. Unlike the Architect Registry
-   * there's no Cloud Function fallback for this tab, so any failure just means no watchlist
-   * entries are applied this session rather than blocking the page from loading at all.
-   */
-  private async loadWatchlistFromSheet(): Promise<PriorityWatchlistEntry[]> {
-    try {
-      const text = await this.fetchTextOnce(WATCHLIST_SHEET_URL, WATCHLIST_SHEET_TIMEOUT_MS);
-      return parseWatchlistTsv(text);
-    } catch (error) {
-      logger.warn('Priority watchlist sheet fetch failed; no watchlist entries will be applied.', error);
-      return [];
-    }
-  }
-
-  private readWatchlistCache(): { entries: PriorityWatchlistEntry[]; fetchedAt: number } | null {
-    try {
-      const raw = localStorage.getItem(WATCHLIST_CACHE_KEY);
-      if (!raw) {
-        return null;
-      }
-      const payload = JSON.parse(raw) as WatchlistCachePayload;
-      if (payload.buildId !== BUILD_ID) {
-        return null;
-      }
-      if (Date.now() - payload.fetchedAt >= WATCHLIST_CACHE_DURATION_MS) {
-        return null;
-      }
-      return { entries: payload.entries, fetchedAt: payload.fetchedAt };
-    } catch {
-      return null;
-    }
-  }
-
-  private writeWatchlistCache(entries: readonly PriorityWatchlistEntry[], fetchedAt: number): void {
-    try {
-      const payload: WatchlistCachePayload = { fetchedAt, buildId: BUILD_ID, entries: [...entries] };
-      localStorage.setItem(WATCHLIST_CACHE_KEY, JSON.stringify(payload));
-    } catch {
-      // Storage full/unavailable (e.g. private browsing) — the in-memory entries still serve this session.
-    }
-  }
-
-  private readArchitectsCache(): { rows: ArchitectRegistryRow[]; fetchedAt: number } | null {
-    try {
-      const raw = localStorage.getItem(ARCHITECTS_CACHE_KEY);
-      if (!raw) {
-        return null;
-      }
-      const payload = JSON.parse(raw) as ArchitectsCachePayload;
-      // A new build was deployed since this was cached — treat it as stale regardless of age,
-      // so a fix or data-shape change ships to every visitor immediately, not after 2 hours.
-      if (payload.buildId !== BUILD_ID) {
-        return null;
-      }
-      if (Date.now() - payload.fetchedAt >= ARCHITECTS_CACHE_DURATION_MS) {
-        return null;
-      }
-      return { rows: payload.rows, fetchedAt: payload.fetchedAt };
-    } catch {
-      return null;
-    }
-  }
-
-  private writeArchitectsCache(rows: readonly ArchitectRegistryRow[], fetchedAt: number): void {
-    try {
-      const payload: ArchitectsCachePayload = { fetchedAt, buildId: BUILD_ID, rows: [...rows] };
-      localStorage.setItem(ARCHITECTS_CACHE_KEY, JSON.stringify(payload));
-    } catch {
-      // Storage full/unavailable (e.g. private browsing) — the in-memory rows still serve this session.
-    }
   }
 
   /**

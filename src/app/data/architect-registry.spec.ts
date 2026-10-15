@@ -1,7 +1,6 @@
 import {
   ArchitectRegistryRow,
   architectNames,
-  buildArchitectInfoMap,
   findArchitectProfile,
   suggestArchitects,
 } from './architect-registry';
@@ -9,27 +8,6 @@ import {
 function row(partial: Partial<ArchitectRegistryRow>): ArchitectRegistryRow {
   return { systemName: '', architect: '', affiliation: '', preferredFaction: '', ...partial };
 }
-
-describe('buildArchitectInfoMap', () => {
-  it('keeps the last row for a system, since the registry is append-only', () => {
-    const map = buildArchitectInfoMap([
-      row({ systemName: 'Varati', architect: 'Old', preferredFaction: 'Canonn' }),
-      row({ systemName: 'Varati', architect: 'New', preferredFaction: 'Canonn Deep Space Research' }),
-    ]);
-    expect(map.get('Varati')).toEqual({ architect: 'New', affiliation: '', preferredFaction: 'Canonn Deep Space Research' });
-  });
-
-  it('skips rows with no system name', () => {
-    expect(buildArchitectInfoMap([row({ architect: 'Nobody' })]).size).toBe(0);
-  });
-
-  it('carries the affiliation through, so a "not a colony" answer can be told apart from no answer at all', () => {
-    const map = buildArchitectInfoMap([
-      row({ systemName: 'Varati', architect: '', affiliation: 'Nobody The System Is Not a Colony' }),
-    ]);
-    expect(map.get('Varati')?.affiliation).toBe('Nobody The System Is Not a Colony');
-  });
-});
 
 describe('architectNames', () => {
   it('de-duplicates case-insensitively, keeping the most recent spelling, sorted A-Z', () => {

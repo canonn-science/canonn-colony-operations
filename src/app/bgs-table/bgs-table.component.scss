@@ -362,36 +362,6 @@
   font-size: 1.15rem;
 }
 
-.bgs-row-progress td {
-  padding: 24px 16px;
-  white-space: normal;
-}
-
-.bgs-progress {
-  max-width: 420px;
-  margin: 0 auto;
-}
-
-.bgs-progress-label {
-  color: var(--color-text-2);
-  font-size: 0.85rem;
-  text-align: center;
-  margin-bottom: 8px;
-}
-
-.bgs-progress-track {
-  height: 8px;
-  border-radius: 4px;
-  background-color: var(--color-surface-4);
-  overflow: hidden;
-}
-
-.bgs-progress-fill {
-  height: 100%;
-  background-color: var(--color-accent);
-  transition: width 0.15s ease;
-}
-
 .bgs-col-system {
   white-space: nowrap;
 }
@@ -453,9 +423,9 @@
   cursor: pointer;
 }
 
-.bgs-row-skeleton td {
-  padding-top: 12px;
-  padding-bottom: 12px;
+.bgs-row-loading td {
+  padding: 16px;
+  white-space: normal;
 }
 
 .bgs-col-freshness {

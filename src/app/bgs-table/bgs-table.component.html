@@ -9,11 +9,11 @@
         mat-stroked-button
         type="button"
         [matMenuTriggerFor]="exportMenu"
-        [disabled]="exporting()"
+        [disabled]="loading()"
         aria-label="Export the data"
       >
         <fa-icon [icon]="faDownload" aria-hidden="true"></fa-icon>
-        {{ exporting() ? 'Exporting…' : 'Export' }}
+        Export
       </button>
       <mat-menu #exportMenu="matMenu">
         <button mat-menu-item type="button" (click)="exportJson()">Export as JSON</button>
@@ -294,37 +294,12 @@
           </tr>
         </thead>
         <tbody>
-          @if (loadProgress(); as progress) {
-            <tr class="bgs-row-progress">
+          @if (loading() && visibleRows().length === 0) {
+            <tr class="bgs-row-loading">
               <td colspan="10">
-                <div class="bgs-progress">
-                  <div class="bgs-progress-label">
-                    Loading full dataset to sort… {{ progress.loaded }} / {{ progress.total }} pages
-                  </div>
-                  <div class="bgs-progress-track">
-                    <div
-                      class="bgs-progress-fill"
-                      [style.width.%]="progress.total ? (progress.loaded / progress.total) * 100 : 0"
-                    ></div>
-                  </div>
-                </div>
+                <app-loading-terminal [realLines]="loadLog()"></app-loading-terminal>
               </td>
             </tr>
-          } @else if (loading() && visibleRows().length === 0) {
-            @for (skeletonRow of skeletonRows; track skeletonRow) {
-              <tr class="bgs-row-skeleton" aria-hidden="true">
-                <td><span class="skeleton skeleton-line skeleton-w80"></span></td>
-                <td><span class="skeleton skeleton-line skeleton-w40"></span></td>
-                <td><span class="skeleton" style="display: block; width: 80%; height: 28px;"></span></td>
-                <td><span class="skeleton skeleton-line skeleton-w40"></span></td>
-                <td><span class="skeleton skeleton-line skeleton-w40"></span></td>
-                <td><span class="skeleton skeleton-line skeleton-w60"></span></td>
-                <td><span class="skeleton skeleton-line skeleton-w40"></span></td>
-                <td><span class="skeleton skeleton-line skeleton-w40"></span></td>
-                <td><span class="skeleton skeleton-line skeleton-w60"></span></td>
-                <td><span class="skeleton skeleton-line skeleton-w60"></span></td>
-              </tr>
-            }
           } @else {
             @for (row of visibleRows(); track row.systemName) {
               <tr>

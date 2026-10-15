@@ -11,11 +11,15 @@ faction network. It displays a searchable, sortable table of every system in the
 - Distance from a chosen reference system — click any system name to re-anchor and re-sort
   the whole table by distance from it.
 
-Every column header is sortable (ascending, then descending on a repeat click, with missing
-values always sorted last). Sorting by anything other than the default page order fetches and
-caches the full dataset once, with a progress meter while it loads.
+The table opens sorted by priority, most urgent first. Every column header is sortable
+(ascending, then descending on a repeat click, with missing values always sorted last). The
+whole system list is loaded in one request (`view=all`), refreshed in the background so it is
+never more than ten minutes old, and the
+app then does the sorting, the distance search, the quick filters and the paging itself, so
+changing any of them is instant. The Priority score is calculated here from the inputs and
+constants the API sends with the list, using the same rules as the API.
 
-Data comes from the [Canonn BGS API](https://us-central1-canonn-api-236217.cloudfunctions.net/query/canonnbgs).
+Data comes from the [Canonn BGS API](https://us-central1-canonn-api-236217.cloudfunctions.net/query/bgs/systems).
 
 ## Development server
 
