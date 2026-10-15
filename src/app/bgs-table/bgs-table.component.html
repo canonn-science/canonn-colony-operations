@@ -1,5 +1,6 @@
 <div class="bgs-container">
   <div class="bgs-header">
+    <app-canonn-logo [animating]="loading()" class="bgs-logo"></app-canonn-logo>
     <div class="bgs-title">
       <h1>Canonn Colony Operations</h1>
       <p>Controlling factions, Canonn / Canonn Deep Space Research influence, and system architects.</p>
@@ -9,11 +10,11 @@
         mat-stroked-button
         type="button"
         [matMenuTriggerFor]="exportMenu"
-        [disabled]="exporting()"
+        [disabled]="loading()"
         aria-label="Export the data"
       >
         <fa-icon [icon]="faDownload" aria-hidden="true"></fa-icon>
-        {{ exporting() ? 'Exporting…' : 'Export' }}
+        Export
       </button>
       <mat-menu #exportMenu="matMenu">
         <button mat-menu-item type="button" (click)="exportJson()">Export as JSON</button>
@@ -23,7 +24,6 @@
         <span class="bgs-export-error" role="alert" aria-live="assertive" aria-atomic="true">{{ err }}</span>
       }
     </div>
-    <app-canonn-logo [animating]="loading()" class="bgs-logo"></app-canonn-logo>
   </div>
 
   <div class="bgs-search">
@@ -236,32 +236,74 @@
               </button>
             </th>
             <th class="bgs-col-influence">
-              <button
-                type="button"
-                class="bgs-sort-header"
-                (click)="sortByColumn('canonn')"
-                [disabled]="loading()"
-                title="Sort by Canonn influence"
-              >
-                CANO
-                @if (sortIndicator('canonn'); as indicator) {
-                  <span class="bgs-sort-indicator">{{ indicator }}</span>
-                }
-              </button>
+              <span class="bgs-influence-head">
+                <span class="bgs-influence-title">CANO</span>
+                <span class="bgs-influence-sorts">
+                  <button
+                    type="button"
+                    class="bgs-sort-header bgs-sort-mini"
+                    [class.bgs-sort-mini--active]="sortIndicator('canonnChange')"
+                    (click)="sortByColumn('canonnChange')"
+                    [disabled]="loading()"
+                    title="Sort by the change in Canonn influence"
+                    aria-label="Sort by the change in Canonn influence"
+                  >
+                    &Delta;
+                    @if (sortIndicator('canonnChange'); as indicator) {
+                      <span class="bgs-sort-indicator">{{ indicator }}</span>
+                    }
+                  </button>
+                  <button
+                    type="button"
+                    class="bgs-sort-header bgs-sort-mini"
+                    [class.bgs-sort-mini--active]="sortIndicator('canonn')"
+                    (click)="sortByColumn('canonn')"
+                    [disabled]="loading()"
+                    title="Sort by Canonn influence"
+                    aria-label="Sort by Canonn influence percentage"
+                  >
+                    %
+                    @if (sortIndicator('canonn'); as indicator) {
+                      <span class="bgs-sort-indicator">{{ indicator }}</span>
+                    }
+                  </button>
+                </span>
+              </span>
             </th>
             <th class="bgs-col-influence">
-              <button
-                type="button"
-                class="bgs-sort-header"
-                (click)="sortByColumn('cdsr')"
-                [disabled]="loading()"
-                title="Sort by Canonn Deep Space Research influence"
-              >
-                CDSR
-                @if (sortIndicator('cdsr'); as indicator) {
-                  <span class="bgs-sort-indicator">{{ indicator }}</span>
-                }
-              </button>
+              <span class="bgs-influence-head">
+                <span class="bgs-influence-title">CDSR</span>
+                <span class="bgs-influence-sorts">
+                  <button
+                    type="button"
+                    class="bgs-sort-header bgs-sort-mini"
+                    [class.bgs-sort-mini--active]="sortIndicator('cdsrChange')"
+                    (click)="sortByColumn('cdsrChange')"
+                    [disabled]="loading()"
+                    title="Sort by the change in Canonn Deep Space Research influence"
+                    aria-label="Sort by the change in Canonn Deep Space Research influence"
+                  >
+                    &Delta;
+                    @if (sortIndicator('cdsrChange'); as indicator) {
+                      <span class="bgs-sort-indicator">{{ indicator }}</span>
+                    }
+                  </button>
+                  <button
+                    type="button"
+                    class="bgs-sort-header bgs-sort-mini"
+                    [class.bgs-sort-mini--active]="sortIndicator('cdsr')"
+                    (click)="sortByColumn('cdsr')"
+                    [disabled]="loading()"
+                    title="Sort by Canonn Deep Space Research influence"
+                    aria-label="Sort by Canonn Deep Space Research influence percentage"
+                  >
+                    %
+                    @if (sortIndicator('cdsr'); as indicator) {
+                      <span class="bgs-sort-indicator">{{ indicator }}</span>
+                    }
+                  </button>
+                </span>
+              </span>
             </th>
             <th class="bgs-col-wrap">
               <button
@@ -294,37 +336,12 @@
           </tr>
         </thead>
         <tbody>
-          @if (loadProgress(); as progress) {
-            <tr class="bgs-row-progress">
+          @if (loading() && visibleRows().length === 0) {
+            <tr class="bgs-row-loading">
               <td colspan="10">
-                <div class="bgs-progress">
-                  <div class="bgs-progress-label">
-                    Loading full dataset to sort… {{ progress.loaded }} / {{ progress.total }} pages
-                  </div>
-                  <div class="bgs-progress-track">
-                    <div
-                      class="bgs-progress-fill"
-                      [style.width.%]="progress.total ? (progress.loaded / progress.total) * 100 : 0"
-                    ></div>
-                  </div>
-                </div>
+                <app-loading-terminal [realLines]="loadLog()"></app-loading-terminal>
               </td>
             </tr>
-          } @else if (loading() && visibleRows().length === 0) {
-            @for (skeletonRow of skeletonRows; track skeletonRow) {
-              <tr class="bgs-row-skeleton" aria-hidden="true">
-                <td><span class="skeleton skeleton-line skeleton-w80"></span></td>
-                <td><span class="skeleton skeleton-line skeleton-w40"></span></td>
-                <td><span class="skeleton" style="display: block; width: 80%; height: 28px;"></span></td>
-                <td><span class="skeleton skeleton-line skeleton-w40"></span></td>
-                <td><span class="skeleton skeleton-line skeleton-w40"></span></td>
-                <td><span class="skeleton skeleton-line skeleton-w60"></span></td>
-                <td><span class="skeleton skeleton-line skeleton-w40"></span></td>
-                <td><span class="skeleton skeleton-line skeleton-w40"></span></td>
-                <td><span class="skeleton skeleton-line skeleton-w60"></span></td>
-                <td><span class="skeleton skeleton-line skeleton-w60"></span></td>
-              </tr>
-            }
           } @else {
             @for (row of visibleRows(); track row.systemName) {
               <tr>
@@ -444,10 +461,46 @@
                 </td>
                 <td class="bgs-col-wrap">{{ row.controllingFaction ?? '—' }}</td>
                 <td class="bgs-col-influence" [class.bgs-influence--present]="row.canonnInfluence !== null">
-                  {{ row.canonnInfluence !== null ? (row.canonnInfluence | number: '1.1-1') + '%' : '—' }}
+                  <span class="bgs-influence-cell">
+                    @if (row.canonnInfluence !== null) {
+                      <button
+                        type="button"
+                        class="bgs-spark-button"
+                        title="Show the influence history"
+                        [attr.aria-label]="'Show the influence history of ' + row.systemName"
+                        (click)="openInfluenceChart(row, 'Canonn')"
+                      >
+                        <app-influence-sparkline [values]="row.canonnHistory"></app-influence-sparkline>
+                      </button>
+                    }
+                    @if (row.canonnInfluence !== null) {
+                      <app-influence-change [change]="row.canonnChange"></app-influence-change>
+                    }
+                    <span class="bgs-influence-value">
+                      {{ row.canonnInfluence !== null ? (row.canonnInfluence | number: '1.1-1') + '%' : '—' }}
+                    </span>
+                  </span>
                 </td>
                 <td class="bgs-col-influence" [class.bgs-influence--present]="row.cdsrInfluence !== null">
-                  {{ row.cdsrInfluence !== null ? (row.cdsrInfluence | number: '1.1-1') + '%' : '—' }}
+                  <span class="bgs-influence-cell">
+                    @if (row.cdsrInfluence !== null) {
+                      <button
+                        type="button"
+                        class="bgs-spark-button"
+                        title="Show the influence history"
+                        [attr.aria-label]="'Show the influence history of ' + row.systemName"
+                        (click)="openInfluenceChart(row, 'Canonn Deep Space Research')"
+                      >
+                        <app-influence-sparkline [values]="row.cdsrHistory"></app-influence-sparkline>
+                      </button>
+                    }
+                    @if (row.cdsrInfluence !== null) {
+                      <app-influence-change [change]="row.cdsrChange"></app-influence-change>
+                    }
+                    <span class="bgs-influence-value">
+                      {{ row.cdsrInfluence !== null ? (row.cdsrInfluence | number: '1.1-1') + '%' : '—' }}
+                    </span>
+                  </span>
                 </td>
                 <td class="bgs-col-wrap">
                   @if (row.notAColony) {

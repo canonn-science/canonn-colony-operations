@@ -1,15 +1,23 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { MatDialog } from '@angular/material/dialog';
-import { BgsPage, BgsRow, CanonnBgsService } from '../canonn-bgs.service';
-import { BgsTableComponent, comparePriorityRows } from './bgs-table.component';
+import { BgsRow, BgsSnapshot, CanonnBgsService } from '../canonn-bgs.service';
+import { BgsConfig, NO_PRIORITY } from '../data/priority';
+import { InfluenceChartDialogComponent } from '../influence-chart-dialog/influence-chart-dialog.component';
+import { BgsTableComponent } from './bgs-table.component';
 
-/** A minimal, fully-populated row — only `systemName` varies between rows in these tests. */
-function row(systemName: string): BgsRow {
+/** A minimal, fully-populated row — tests override only the fields they care about. */
+function row(systemName: string, overrides: Partial<BgsRow> = {}): BgsRow {
   return {
     systemName,
     controllingFaction: null,
     canonnInfluence: null,
     cdsrInfluence: null,
+    canonnHistory: [],
+    cdsrHistory: [],
+    canonnChange: null,
+    cdsrChange: null,
+    systemAddress: '',
+    influenceAverages: {},
     architect: null,
     notAColony: false,
     preferredFaction: null,
@@ -35,157 +43,392 @@ function row(systemName: string): BgsRow {
     z: 0,
     updatedAt: null,
     watchlist: [],
+    priority: NO_PRIORITY,
     powerplay: null,
+    ...overrides,
   };
 }
 
-/** Stands in for the real API's own page size — deliberately much bigger than any display page size. */
-const SERVER_PAGE_SIZE = 500;
-const TOTAL_SYSTEMS = 4106;
+const TOTAL_SYSTEMS = 250;
 
-function serverPage(page: number): BgsPage {
-  const start = page * SERVER_PAGE_SIZE;
-  const count = Math.max(0, Math.min(SERVER_PAGE_SIZE, TOTAL_SYSTEMS - start));
-  return {
-    page,
-    rows: Array.from({ length: count }, (_unused, i) => row(`System ${start + i}`)),
-    totalCount: TOTAL_SYSTEMS,
-    totalPages: Math.max(1, Math.ceil(TOTAL_SYSTEMS / SERVER_PAGE_SIZE)),
-  };
+/** `TOTAL_SYSTEMS` systems named `System 000`…, each with a distinct Canonn influence, position and priority score, rising with its number. */
+function allSystems(): BgsRow[] {
+  return Array.from({ length: TOTAL_SYSTEMS }, (_unused, i) =>
+    row(`System ${String(i).padStart(3, '0')}`, {
+      canonnInfluence: i,
+      x: i,
+      priority: { ...NO_PRIORITY, tier: 'P2', score: i },
+    }),
+  );
 }
 
-describe('BgsTableComponent paging against a large API page size (issue #7 follow-up)', () => {
+function snapshot(rows: BgsRow[]): BgsSnapshot {
+  return { rows, generatedAt: '2026-10-14T09:30:12', config: {} as BgsConfig };
+}
+
+describe('BgsTableComponent over the whole list', () => {
   let fixture: ComponentFixture<BgsTableComponent>;
   let component: BgsTableComponent;
-  let service: { getPage: ReturnType<typeof vi.fn>; prefetchPage: ReturnType<typeof vi.fn>; getArchitectRegistry: ReturnType<typeof vi.fn> };
+  let dialogOpen: ReturnType<typeof vi.fn>;
+  let service: {
+    getSystems: ReturnType<typeof vi.fn>;
+    getArchitectRegistry: ReturnType<typeof vi.fn>;
+    typeahead: ReturnType<typeof vi.fn>;
+  };
 
   /** Reaches past `protected`/`private` — these are the component's externally observable state. */
   function pageSize(): number {
     return component['pageSize']();
   }
-  function visibleRows(): BgsRow[] {
-    return component['visibleRows']();
+  function visibleNames(): string[] {
+    return component['visibleRows']().map(r => r.systemName);
+  }
+  function total(): number | null {
+    return component['displayTotalCount']();
+  }
+
+  async function createWith(rows: BgsRow[]): Promise<void> {
+    service.getSystems.mockReset();
+    service.getSystems.mockResolvedValue(snapshot(rows));
+    fixture = TestBed.createComponent(BgsTableComponent);
+    component = fixture.componentInstance;
+    await fixture.whenStable();
   }
 
   beforeEach(async () => {
+    dialogOpen = vi.fn();
     service = {
-      getPage: vi.fn((page: number) => Promise.resolve(serverPage(page))),
-      prefetchPage: vi.fn(),
+      getSystems: vi.fn(),
       getArchitectRegistry: vi.fn().mockResolvedValue([]),
+      typeahead: vi.fn().mockResolvedValue({ min_max: [], values: [] }),
     };
 
     await TestBed.configureTestingModule({
       imports: [BgsTableComponent],
       providers: [
         { provide: CanonnBgsService, useValue: service },
-        { provide: MatDialog, useValue: {} },
+        { provide: MatDialog, useValue: { open: dialogOpen, openDialogs: [] } },
       ],
     }).compileComponents();
 
-    fixture = TestBed.createComponent(BgsTableComponent);
-    component = fixture.componentInstance;
-    await fixture.whenStable();
+    await createWith(allSystems());
   });
 
-  it('shows only the default display page size on load, not the whole (500-row) server page', () => {
-    expect(pageSize()).toBe(10);
-    expect(visibleRows().length).toBe(10);
-    expect(visibleRows()[0].systemName).toBe('System 0');
-    expect(service.getPage).toHaveBeenCalledTimes(1);
-    expect(service.getPage).toHaveBeenCalledWith(0);
-  });
+  describe('paging', () => {
+    it('loads the list once and shows the first display page of it, highest priority first', () => {
+      expect(service.getSystems).toHaveBeenCalledTimes(1);
+      expect(pageSize()).toBe(10);
+      expect(visibleNames()).toEqual(
+        Array.from({ length: 10 }, (_unused, i) => `System ${String(TOTAL_SYSTEMS - 1 - i).padStart(3, '0')}`),
+      );
+      expect(total()).toBe(TOTAL_SYSTEMS);
+      expect(component['displayTotalPages']()).toBe(25);
+    });
 
-  it('switches to a larger display page size using only what was already downloaded', async () => {
-    service.getPage.mockClear();
-
-    component['setPageSize'](100);
-    await fixture.whenStable();
-
-    expect(pageSize()).toBe(100);
-    expect(visibleRows().length).toBe(100);
-    // The first server page already had 500 rows buffered — no fetch was needed for this.
-    expect(service.getPage).not.toHaveBeenCalled();
-  });
-
-  it('fetches another server page only once paging forward runs past what is buffered', async () => {
-    component['setPageSize'](100);
-    await fixture.whenStable();
-    service.getPage.mockClear();
-
-    // Display pages of 100 rows fit 5 to a 500-row server page — pages 2-5 stay within it.
-    for (let i = 0; i < 4; i++) {
+    it('pages forward and back without asking for anything more', () => {
       component['nextPage']();
+      component['nextPage']();
+      expect(visibleNames()[0]).toBe('System 229');
+
+      component['previousPage']();
+      expect(visibleNames()[0]).toBe('System 239');
+      expect(service.getSystems).toHaveBeenCalledTimes(1);
+    });
+
+    it('changes the page size and goes back to the first page', () => {
+      component['nextPage']();
+
+      component['setPageSize'](100);
+
+      expect(component['pageIndex']()).toBe(0);
+      expect(visibleNames()).toHaveLength(100);
+      expect(component['displayTotalPages']()).toBe(3);
+    });
+
+    it('stops at the last page, which holds what is left over', () => {
+      component['setPageSize'](100);
+      component['nextPage']();
+      component['nextPage']();
+      component['nextPage']();
+
+      expect(component['pageIndex']()).toBe(2);
+      expect(visibleNames()).toHaveLength(50);
+      expect(component['hasNextPage']()).toBe(false);
+    });
+  });
+
+  describe('loading', () => {
+    it('shows nothing, and offers a retry, when the list fails to load', async () => {
+      service.getSystems.mockReset();
+      service.getSystems.mockRejectedValue(new Error('timeout'));
+      fixture = TestBed.createComponent(BgsTableComponent);
+      component = fixture.componentInstance;
       await fixture.whenStable();
-    }
-    expect(service.getPage).not.toHaveBeenCalled();
-    expect(visibleRows().length).toBe(100);
-    expect(visibleRows()[0].systemName).toBe('System 400');
 
-    // The 6th display page (rows 500-600) needs the second server page.
-    component['nextPage']();
-    await fixture.whenStable();
+      expect(component['errorMessage']()).toBe('Failed to load BGS data: timeout');
+      expect(visibleNames()).toEqual([]);
+      expect(component['loading']()).toBe(false);
 
-    expect(service.getPage).toHaveBeenCalledWith(1);
-    expect(visibleRows().length).toBe(100);
-    expect(visibleRows()[0].systemName).toBe('System 500');
+      service.getSystems.mockResolvedValue(snapshot(allSystems()));
+      component['retry']();
+      await fixture.whenStable();
+
+      expect(component['errorMessage']()).toBeNull();
+      expect(total()).toBe(TOTAL_SYSTEMS);
+    });
   });
 
-  it('does not fetch the same server page twice when a page-size change races the initial load', async () => {
-    service.getPage.mockClear();
+  describe('sorting a column', () => {
+    it('opens sorted by priority, most urgent first, and says so on the header', () => {
+      expect(component['mode']()).toBe('column');
+      expect(visibleNames()[0]).toBe('System 249');
+      expect(component['sortIndicator']('priority')).toBe('▼');
+    });
 
-    // The constructor's own initial buffering fires (and reaches the service) synchronously;
-    // racing a page-size change immediately after, before that first fetch resolves, must not
-    // capture the same server page index and issue a second request for it.
-    const freshFixture = TestBed.createComponent(BgsTableComponent);
-    const freshComponent = freshFixture.componentInstance;
-    freshComponent['setPageSize'](100);
-    await freshFixture.whenStable();
+    it('flips the priority order on a click, and back again on the next', () => {
+      component['sortByColumn']('priority');
+      expect(visibleNames()[0]).toBe('System 000');
+      expect(component['sortIndicator']('priority')).toBe('▲');
 
-    const pageZeroCalls = service.getPage.mock.calls.filter(([page]) => page === 0).length;
-    expect(pageZeroCalls).toBe(1);
-    expect(freshComponent['visibleRows']().length).toBe(100);
-    expect(freshComponent['visibleRows']()[0].systemName).toBe('System 0');
+      component['sortByColumn']('priority');
+      expect(visibleNames()[0]).toBe('System 249');
+      expect(component['sortIndicator']('priority')).toBe('▼');
+    });
+
+    it('goes back to priority, highest first, after another column has been sorted', () => {
+      component['sortByColumn']('canonn');
+      component['sortByColumn']('priority');
+
+      expect(visibleNames()[0]).toBe('System 249');
+    });
+
+    it('sorts any other column ascending on the first click, and flips on the second', () => {
+      component['sortByColumn']('canonn');
+      expect(visibleNames()[0]).toBe('System 000');
+
+      component['sortByColumn']('canonn');
+      expect(visibleNames()[0]).toBe('System 249');
+    });
+
+    it('sorts a faction\'s change biggest gain first on the first click, then biggest loss first', () => {
+      const change = (points: number) => ({ points, window: '7d' as const, direction: 'up' as const, perDay: null, spanDays: 7 });
+      service.getSystems.mockResolvedValue(
+        snapshot([
+          row('Loser', { canonnChange: change(-4) }),
+          row('Winner', { canonnChange: change(6) }),
+          row('Steady', { canonnChange: change(0) }),
+          row('Unknown'),
+        ]),
+      );
+      void component['loadSystems']();
+
+      return fixture.whenStable().then(() => {
+        component['sortByColumn']('canonnChange');
+        expect(visibleNames()).toEqual(['Winner', 'Steady', 'Loser', 'Unknown']);
+        expect(component['sortIndicator']('canonnChange')).toBe('▼');
+
+        component['sortByColumn']('canonnChange');
+        expect(visibleNames()).toEqual(['Loser', 'Steady', 'Winner', 'Unknown']);
+        expect(component['sortIndicator']('canonnChange')).toBe('▲');
+      });
+    });
+
+    it('keeps the change and percentage sorts apart, only one active at a time', () => {
+      component['sortByColumn']('canonn');
+      expect(component['sortIndicator']('canonn')).toBe('▲');
+      expect(component['sortIndicator']('canonnChange')).toBeNull();
+
+      component['sortByColumn']('canonnChange');
+      expect(component['sortIndicator']('canonn')).toBeNull();
+      expect(component['sortIndicator']('canonnChange')).not.toBeNull();
+    });
+
+    it('starts again from the first page', () => {
+      component['nextPage']();
+      component['nextPage']();
+
+      component['sortByColumn']('canonn');
+
+      expect(component['pageIndex']()).toBe(0);
+    });
+
+    it('does not fetch anything: the list it already holds is re-sorted', () => {
+      component['sortByColumn']('priority');
+      component['sortByColumn']('cdsr');
+      component['sortByColumn']('factionCount');
+
+      expect(service.getSystems).toHaveBeenCalledTimes(1);
+    });
+
+    it('sorts by priority across every page, not just the visible one', () => {
+      component['setPageSize'](100);
+      component['nextPage']();
+
+      expect(visibleNames()[0]).toBe('System 149');
+      expect(visibleNames()[99]).toBe('System 050');
+    });
   });
-});
 
-describe('comparePriorityRows', () => {
-  /** Three otherwise-identical P0 systems (an active war), varying only population/body count. */
-  function p0Row(systemName: string, population: number | null, bodyCount: number | null): BgsRow {
-    return { ...row(systemName), preferredFaction: 'Canonn', warState: 'active', population, bodyCount };
-  }
+  describe('quick filters', () => {
+    beforeEach(async () => {
+      await createWith([
+        row('Quiet'),
+        row('War', { warState: 'active', architect: 'Cmdr A' }),
+        row('Election', { electionState: 'pending' }),
+        row('Mine', { architect: 'Cmdr Example', factions: [{ name: 'Canonn', influencePercent: 40 }] }),
+      ]);
+    });
 
-  it('breaks a tied priority score by higher population first', () => {
-    const highPop = p0Row('High Pop', 10_000_000, 10);
-    const lowPop = p0Row('Low Pop', 10, 10);
+    it('narrows to systems in, or about to be in, a war or election, and counts them', () => {
+      component['toggleWarElection']();
 
-    expect(comparePriorityRows(highPop, lowPop, 'desc')).toBeLessThan(0); // highPop sorts first
-    expect(comparePriorityRows(lowPop, highPop, 'desc')).toBeGreaterThan(0);
+      expect(visibleNames()).toEqual(['Election', 'War']);
+      expect(total()).toBe(2);
+
+      component['toggleWarElection']();
+      expect(total()).toBe(4);
+    });
+
+    it('narrows to systems with no architect, or to a named one', () => {
+      component['setArchitectFilterMode']('none');
+      expect(visibleNames()).toEqual(['Election', 'Quiet']);
+
+      component['architectFilterControl'].setValue('cmdr example');
+      component['applyArchitectFilterName']();
+      expect(visibleNames()).toEqual(['Mine']);
+
+      component['setArchitectFilterMode']('all');
+      expect(total()).toBe(4);
+    });
+
+    it('narrows to Canonn-affiliated systems, or to a named faction', () => {
+      component['setFactionFilterMode']('canonn');
+      expect(visibleNames()).toEqual(['Mine']);
+
+      component['factionFilterControl'].setValue('Nobody Here');
+      component['applyFactionFilterName']();
+      expect(visibleNames()).toEqual([]);
+      expect(total()).toBe(0);
+    });
+
+    it('keeps the filter when the sort changes', () => {
+      component['toggleWarElection']();
+      component['sortByColumn']('architect');
+      component['sortByColumn']('architect');
+
+      // War has an architect and Election does not; descending puts the one with a value first.
+      expect(visibleNames()).toEqual(['War', 'Election']);
+    });
+
+    it('goes back to the first page when a filter changes', async () => {
+      await createWith(allSystems());
+      component['nextPage']();
+
+      component['toggleNeedsRecon']();
+
+      expect(component['pageIndex']()).toBe(0);
+    });
+
+    it('offers the factions of the whole list as suggestions for the faction filter', () => {
+      component['factionFilterControl'].setValue('can');
+
+      expect(component['factionFilterSuggestions']()).toEqual(['Canonn']);
+    });
   });
 
-  it('breaks a population tie by higher body count', () => {
-    const moreBodies = p0Row('More Bodies', 10, 10);
-    const fewerBodies = p0Row('Fewer Bodies', 10, 1);
+  describe('distance', () => {
+    it('sorts nearest first from a searched system, without fetching anything', async () => {
+      component['typeaheadCache'].set('system 100', { name: 'System 100', x: 100, y: 0, z: 0 });
 
-    expect(comparePriorityRows(moreBodies, fewerBodies, 'desc')).toBeLessThan(0);
+      component['systemSearchControl'].setValue('System 100');
+      component['onSystemSearchSubmit']();
+      await fixture.whenStable();
+
+      expect(visibleNames().slice(0, 3)).toEqual(['System 100', 'System 099', 'System 101']);
+      expect(component['anchorName']()).toBe('System 100');
+      expect(service.getSystems).toHaveBeenCalledTimes(1);
+    });
+
+    it('says so when a searched system is not found, and leaves the order alone', async () => {
+      component['systemSearchControl'].setValue('Nowhere');
+      component['onSystemSearchSubmit']();
+      await fixture.whenStable();
+
+      expect(component['searchError']()).toBe('System "Nowhere" not found.');
+      expect(component['mode']()).toBe('column');
+    });
   });
 
-  it('ranks all three example systems in the requested order regardless of sort direction', () => {
-    const highPopHighBodies = p0Row('A', 10_000_000, 10);
-    const lowPopHighBodies = p0Row('B', 10, 10);
-    const lowPopLowBodies = p0Row('C', 10, 1);
-    const systems = [lowPopLowBodies, highPopHighBodies, lowPopHighBodies];
+  describe('keeping the list fresh', () => {
+    it('swaps in a newer list the service has fetched, keeping the order and filters', async () => {
+      component['setArchitectFilterMode']('none');
+      service.getSystems.mockResolvedValue(snapshot([row('Only One', { priority: { ...NO_PRIORITY, score: 50 } })]));
 
-    for (const direction of ['desc', 'asc'] as const) {
-      const sorted = [...systems].sort((a, b) => comparePriorityRows(a, b, direction));
-      expect(sorted.map(s => s.systemName)).toEqual(['A', 'B', 'C']);
-    }
+      await component['refreshIfStale']();
+
+      expect(visibleNames()).toEqual(['Only One']);
+      expect(total()).toBe(1);
+      expect(component['architectFilterMode']()).toBe('none');
+    });
+
+    it('steps back to the last page when the new list is shorter than where the user was', async () => {
+      component['setPageSize'](10);
+      for (let i = 0; i < 20; i++) {
+        component['nextPage']();
+      }
+      service.getSystems.mockResolvedValue(snapshot(allSystems().slice(0, 35)));
+
+      await component['refreshIfStale']();
+
+      expect(component['pageIndex']()).toBe(3);
+      expect(visibleNames()).toHaveLength(5);
+    });
+
+    it('keeps showing what it has when the refresh fails', async () => {
+      service.getSystems.mockRejectedValue(new Error('offline'));
+
+      await component['refreshIfStale']();
+
+      expect(total()).toBe(TOTAL_SYSTEMS);
+      expect(component['errorMessage']()).toBeNull();
+    });
   });
 
-  it('still lets the priority score itself take precedence over population/body count', () => {
-    const worseScoreBigSystem = { ...row('Big but quiet'), preferredFaction: 'Canonn', population: 10_000_000, bodyCount: 50 };
-    const betterScoreSmallSystem = p0Row('Small but at war', 1, 1);
+  describe('influence chart', () => {
+    it('opens the history chart of the system, highlighting the faction whose sparkline was clicked', () => {
+      const varati = row('Varati', { systemAddress: '3932277478106', influenceAverages: { Canonn: 0.45 } });
 
-    // Descending (highest priority first): the P0 war system beats the quiet big system.
-    expect(comparePriorityRows(betterScoreSmallSystem, worseScoreBigSystem, 'desc')).toBeLessThan(0);
+      component['openInfluenceChart'](varati, 'Canonn Deep Space Research');
+
+      expect(dialogOpen).toHaveBeenCalledTimes(1);
+      const [dialogComponent, config] = dialogOpen.mock.calls[0];
+      expect(dialogComponent).toBe(InfluenceChartDialogComponent);
+      expect(config.data).toEqual({
+        systemName: 'Varati',
+        systemAddress: '3932277478106',
+        averages: { Canonn: 0.45 },
+        highlight: 'Canonn Deep Space Research',
+      });
+    });
+  });
+
+  describe('export', () => {
+    it('hands over every row of the current filters and sort, not just the page on screen', () => {
+      let exported: BgsRow[] = [];
+
+      component['exportRows'](rows => (exported = rows));
+
+      expect(exported).toHaveLength(TOTAL_SYSTEMS);
+      expect(exported[0].systemName).toBe('System 249');
+      expect(component['exportError']()).toBeNull();
+    });
+
+    it('reports a failure to write the file', () => {
+      component['exportRows'](() => {
+        throw new Error('disk full');
+      });
+
+      expect(component['exportError']()).toBe('Failed to export data. Please try again.');
+    });
   });
 });

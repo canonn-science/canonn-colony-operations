@@ -1,7 +1,7 @@
+// Full width, like the BGS tracker's own dashboard: the table has a dozen columns and is
+// the whole point of the page, so it gets the screen rather than a centred column.
 .bgs-container {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 24px 16px 48px;
+  padding: 16px 20px 32px;
 }
 
 .bgs-header {
@@ -9,11 +9,11 @@
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 20px;
+  margin-bottom: 14px;
 
   h1 {
     margin: 0 0 4px;
-    font-size: 1.6rem;
+    font-size: 1.4rem;
     color: var(--color-accent);
   }
 
@@ -25,9 +25,15 @@
 
 .bgs-logo {
   display: block;
-  width: 96px;
-  height: 96px;
+  width: 72px;
+  height: 72px;
   flex-shrink: 0;
+}
+
+// The title takes the space between the logo and the actions, which keeps Export at the far right.
+.bgs-title {
+  flex: 1;
+  min-width: 0;
 }
 
 .bgs-header-actions {
@@ -146,11 +152,11 @@
 .bgs-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.9rem;
+  font-size: 0.8125rem;
 
   th,
   td {
-    padding: 10px 14px;
+    padding: 7px 10px;
     text-align: left;
     white-space: nowrap;
   }
@@ -159,7 +165,7 @@
   // most likely to push the table wider than the viewport — wrapping them onto a second
   // line keeps every column visible without horizontal scrolling on a typical screen.
   .bgs-col-wrap {
-    max-width: 150px;
+    max-width: 220px;
     white-space: normal;
     overflow-wrap: break-word;
   }
@@ -178,7 +184,7 @@
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.03em;
-    font-size: 0.75rem;
+    font-size: 0.6875rem;
     border-bottom: 1px solid var(--color-border-muted);
   }
 
@@ -234,6 +240,97 @@
 .bgs-influence--present {
   color: var(--color-accent);
   font-weight: 600;
+}
+
+// The sparkline sits to the left of the percentage; the percentage keeps a fixed width so the
+// lines start in the same place down the column however many digits the value has.
+.bgs-influence-cell {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.bgs-influence-value {
+  min-width: var(--bgs-value-width);
+  text-align: right;
+}
+
+// The CANO / CDSR headers are one row of three slots, each directly over the part of the cell
+// it belongs to: the faction's name over its sparkline, the change sort over the change, and the
+// percentage sort over the percentage. The cells and the header share these widths.
+.bgs-col-influence {
+  --bgs-spark-width: 66px;
+  --bgs-change-width: 4.6rem;
+  --bgs-value-width: 2.8rem;
+}
+
+.bgs-influence-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.bgs-influence-title {
+  min-width: var(--bgs-spark-width);
+  text-align: center;
+}
+
+// The wrapper only groups the two buttons in the markup; they sit in the head's row.
+.bgs-influence-sorts {
+  display: contents;
+
+  .bgs-sort-mini {
+    justify-content: center;
+    box-sizing: border-box;
+  }
+
+  .bgs-sort-mini:first-child {
+    min-width: var(--bgs-change-width);
+  }
+
+  .bgs-sort-mini:last-child {
+    min-width: var(--bgs-value-width);
+  }
+}
+
+.bgs-sort-mini {
+  padding: 1px 6px;
+  border: 1px solid var(--color-border-muted);
+  border-radius: 4px;
+  line-height: 1.4;
+
+  &:hover:not(:disabled),
+  &:focus-visible:not(:disabled) {
+    border-color: var(--color-accent);
+  }
+}
+
+.bgs-sort-mini--active {
+  border-color: var(--color-accent);
+  background-color: var(--color-surface);
+}
+
+// The sparkline is the way into the full history chart.
+.bgs-spark-button {
+  display: inline-flex;
+  padding: 2px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: none;
+  cursor: pointer;
+
+  &:hover,
+  &:focus-visible {
+    border-color: var(--color-accent);
+    background-color: var(--color-surface-2);
+  }
+}
+
+// A fixed slot, so the arrows line up down the column whether the change is +0.4 or -12.3.
+.bgs-influence-cell app-influence-change {
+  min-width: var(--bgs-change-width);
+  text-align: left;
 }
 
 .bgs-col-factions {
@@ -362,36 +459,6 @@
   font-size: 1.15rem;
 }
 
-.bgs-row-progress td {
-  padding: 24px 16px;
-  white-space: normal;
-}
-
-.bgs-progress {
-  max-width: 420px;
-  margin: 0 auto;
-}
-
-.bgs-progress-label {
-  color: var(--color-text-2);
-  font-size: 0.85rem;
-  text-align: center;
-  margin-bottom: 8px;
-}
-
-.bgs-progress-track {
-  height: 8px;
-  border-radius: 4px;
-  background-color: var(--color-surface-4);
-  overflow: hidden;
-}
-
-.bgs-progress-fill {
-  height: 100%;
-  background-color: var(--color-accent);
-  transition: width 0.15s ease;
-}
-
 .bgs-col-system {
   white-space: nowrap;
 }
@@ -453,9 +520,9 @@
   cursor: pointer;
 }
 
-.bgs-row-skeleton td {
-  padding-top: 12px;
-  padding-bottom: 12px;
+.bgs-row-loading td {
+  padding: 16px;
+  white-space: normal;
 }
 
 .bgs-col-freshness {
@@ -526,7 +593,7 @@
 
 .bgs-pager-status {
   color: var(--color-text-2);
-  font-size: 0.9rem;
+  font-size: 0.8125rem;
   text-align: center;
 }
 
@@ -542,7 +609,7 @@
   }
 
   .bgs-logo {
-    width: 72px;
-    height: 72px;
+    width: 56px;
+    height: 56px;
   }
 }

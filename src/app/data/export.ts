@@ -4,7 +4,7 @@
  */
 import { BgsRow } from '../canonn-bgs.service';
 import { computeFreshness } from './freshness';
-import { computePriorityAssessment } from './priority';
+import { currentPriority } from './priority';
 
 /** One row, flattened to plain JSON-friendly fields for the JSON export. */
 export interface ExportRecord {
@@ -38,7 +38,7 @@ export interface ExportRecord {
 
 /** Flattens a row into an {@link ExportRecord}, folding in the same priority/freshness the table computes for display. */
 export function toExportRecord(row: BgsRow, nowMs: number): ExportRecord {
-  const priority = computePriorityAssessment(row, nowMs);
+  const priority = currentPriority(row, nowMs);
   return {
     systemName: row.systemName,
     controllingFaction: row.controllingFaction,

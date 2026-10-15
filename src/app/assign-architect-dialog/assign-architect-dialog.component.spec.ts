@@ -8,6 +8,7 @@ import {
   AFFILIATION_UNKNOWN,
 } from '../data/architect-form';
 import { ArchitectRegistryRow } from '../data/architect-registry';
+import { NO_PRIORITY } from '../data/priority';
 import { AssignArchitectDialogComponent } from './assign-architect-dialog.component';
 
 const ROW: BgsRow = {
@@ -15,6 +16,12 @@ const ROW: BgsRow = {
   controllingFaction: 'Local Lads',
   canonnInfluence: 20,
   cdsrInfluence: 40,
+  canonnHistory: [],
+  cdsrHistory: [],
+  canonnChange: null,
+  cdsrChange: null,
+  systemAddress: '',
+  influenceAverages: {},
   architect: null,
   notAColony: false,
   preferredFaction: null,
@@ -45,6 +52,7 @@ const ROW: BgsRow = {
   z: 0,
   updatedAt: null,
   watchlist: [],
+  priority: NO_PRIORITY,
   powerplay: null,
 };
 

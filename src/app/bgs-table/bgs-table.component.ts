@@ -32,47 +32,59 @@ import {
   AssignArchitectDialogData,
 } from '../assign-architect-dialog/assign-architect-dialog.component';
 import { CanonnLogoComponent } from '../canonn-logo/canonn-logo.component';
+import { InfluenceChangeComponent } from '../influence-change/influence-change.component';
+import {
+  InfluenceChartDialogComponent,
+  InfluenceChartDialogData,
+} from '../influence-chart-dialog/influence-chart-dialog.component';
+import { InfluenceSparklineComponent } from '../influence-sparkline/influence-sparkline.component';
+import { LoadingTerminalComponent } from '../loading-terminal/loading-terminal.component';
 import {
   PriorityWatchlistDialogComponent,
   PriorityWatchlistDialogData,
 } from '../priority-watchlist-dialog/priority-watchlist-dialog.component';
 import { ArchitectSubmission } from '../data/architect-form';
 import { architectNames, suggestArchitects } from '../data/architect-registry';
-import { distanceLy } from '../data/distance';
+import {
+  OrderColumn,
+  OrderDirection,
+  RowFilters,
+  filterRows,
+  sortRowsByColumn,
+  sortRowsByDistance,
+} from '../data/bgs-order';
 import { exportRowsToCsv, exportRowsToJson } from '../data/export';
 import { FreshnessInfo, computeFreshness } from '../data/freshness';
-import { PriorityAssessment, computePriorityAssessment, prioritySortKey } from '../data/priority';
+import { PriorityAssessment, currentPriority } from '../data/priority';
 import { readYourName } from '../data/your-name';
 
 /**
  * How the table is currently ordered:
- * - 'paged': server-paged, in API order (the default).
+ * - 'column': by a column's value — priority, highest first, until the user clicks another
+ *   header (the default).
  * - 'distance': the user searched a system; sorted by distance from it.
- * - 'column': the user clicked a sortable header; sorted by that column's value.
+ * - 'paged': by name, the order the API sends the systems in. Nothing selects this today; it is
+ *   what an ordering with nothing to order by falls back to.
+ * The whole list is loaded in one go, so every ordering and quick filter is worked out here.
  */
 type Mode = 'paged' | 'distance' | 'column';
 
 /** Columns the user can click a header to sort by. */
-type SortColumn =
-  | 'canonn'
-  | 'cdsr'
-  | 'controllingFaction'
-  | 'architect'
-  | 'preferredFaction'
-  | 'factionCount'
-  | 'freshness'
-  | 'priority';
-type SortDirection = 'asc' | 'desc';
+type SortColumn = OrderColumn;
+type SortDirection = OrderDirection;
 
 /** The Architect quick filter's modes: everyone, systems with no architect, or one named architect. */
 type ArchitectFilterMode = 'all' | 'none' | 'name';
 /** The Faction quick filter's modes: everyone, only Canonn-affiliated systems, or one named faction. */
 type FactionFilterMode = 'all' | 'canonn' | 'name';
 
+/** Columns whose first click sorts the largest values first. */
+const MOST_FIRST_COLUMNS: ReadonlySet<SortColumn> = new Set<SortColumn>(['priority', 'canonnChange', 'cdsrChange']);
+
 /** Page sizes the "Page size" quick filter offers. */
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100] as const;
 
-/** A named point in space the Distance column can be measured from. A BgsRow satisfies this too. */
+/** A named point in space the table can be sorted by distance from. A BgsRow satisfies this too. */
 interface AnchorPoint {
   systemName: string;
   x: number;
@@ -86,84 +98,6 @@ const DEFAULT_SEARCH_SYSTEM = 'Varati';
 const SUGGESTION_DEBOUNCE_MS = 300;
 /** Minimum query length before firing a typeahead lookup. */
 const SUGGESTION_MIN_LENGTH = 3;
-
-function columnValue(row: BgsRow, column: SortColumn): string | number | null {
-  switch (column) {
-    case 'canonn':
-      return row.canonnInfluence;
-    case 'cdsr':
-      return row.cdsrInfluence;
-    case 'controllingFaction':
-      return row.controllingFaction;
-    case 'architect':
-      return row.architect;
-    case 'preferredFaction':
-      return row.preferredFaction;
-    case 'factionCount':
-      return row.factions.length;
-    case 'freshness':
-      // Sort on the raw timestamp, not the rounded label, so two rows with the same
-      // displayed age (e.g. both "3w") don't tie arbitrarily.
-      return computeFreshness(row.updatedAt).sortValue;
-    case 'priority':
-      // Never reached — the Priority column uses the dedicated comparePriorityRows below,
-      // which also breaks ties by population/body count. TypeScript needs this case for
-      // exhaustiveness since 'priority' is a SortColumn.
-      return null;
-  }
-}
-
-/** Sorts a column's values with nulls (no data) always last, regardless of direction. */
-function compareColumnValues(a: string | number | null, b: string | number | null, direction: SortDirection): number {
-  if (a === null) {
-    return b === null ? 0 : 1;
-  }
-  if (b === null) {
-    return -1;
-  }
-  const cmp = typeof a === 'number' && typeof b === 'number'
-    ? a - b
-    : String(a).localeCompare(String(b), undefined, { sensitivity: 'base' });
-  return direction === 'asc' ? cmp : -cmp;
-}
-
-/** Higher wins; an unknown value always loses to a known one; two unknowns tie. Fixed direction — doesn't flip with the outer sort's asc/desc toggle. */
-function compareDescendingNullsLast(a: number | null, b: number | null): number {
-  if (a === null) {
-    return b === null ? 0 : 1;
-  }
-  if (b === null) {
-    return -1;
-  }
-  return b - a;
-}
-
-/**
- * The Priority column's comparator: the priority sort key (see {@link prioritySortKey})
- * decides the primary order, direction-sensitive as usual. When two rows tie on that key
- * (e.g. several P0 systems), station count breaks the tie (more stations, higher up), then
- * population, then body count — a bigger, more developed system matters more when priority is
- * otherwise equal. This tiebreak direction never flips with the column's own asc/desc toggle.
- */
-export function comparePriorityRows(a: BgsRow, b: BgsRow, direction: SortDirection, nowMs: number = Date.now()): number {
-  const primary = compareColumnValues(
-    prioritySortKey(computePriorityAssessment(a, nowMs)),
-    prioritySortKey(computePriorityAssessment(b, nowMs)),
-    direction,
-  );
-  if (primary !== 0) {
-    return primary;
-  }
-  const stationCmp = compareDescendingNullsLast(a.stationCount, b.stationCount);
-  if (stationCmp !== 0) {
-    return stationCmp;
-  }
-  const populationCmp = compareDescendingNullsLast(a.population, b.population);
-  if (populationCmp !== 0) {
-    return populationCmp;
-  }
-  return compareDescendingNullsLast(a.bodyCount, b.bodyCount);
-}
 
 function toAnchorPoint(system: TypeaheadSystem): AnchorPoint {
   return { systemName: system.name, x: system.x, y: system.y, z: system.z };
@@ -182,6 +116,9 @@ function toAnchorPoint(system: TypeaheadSystem): AnchorPoint {
     MatSelectModule,
     FaIconComponent,
     CanonnLogoComponent,
+    InfluenceChangeComponent,
+    InfluenceSparklineComponent,
+    LoadingTerminalComponent,
   ],
   templateUrl: './bgs-table.component.html',
   styleUrl: './bgs-table.component.scss',
@@ -201,8 +138,8 @@ export class BgsTableComponent implements OnDestroy {
   /** Both Canonn-affiliated factions — their bars are highlighted orange in the Factions chart. */
   protected readonly canonnFactionNames: ReadonlySet<string> = new Set([CANONN_FACTION, CDSR_FACTION]);
   protected readonly encodeURIComponent = encodeURIComponent;
-  /** Placeholder rows shown while data is still loading. */
-  protected readonly skeletonRows = Array.from({ length: 12 }, (_, i) => i);
+  /** What the first load is really doing, for the terminal shown while the list is on its way. */
+  protected readonly loadLog = this.bgsService.loadLog;
 
   /**
    * The clock the Freshness column's pills are computed against. Recomputed once a minute
@@ -211,7 +148,10 @@ export class BgsTableComponent implements OnDestroy {
    */
   private readonly now = signal(Date.now());
   private nowTimerHandle: ReturnType<typeof setInterval> | undefined;
-  private readonly onWindowFocus = () => this.now.set(Date.now());
+  private readonly onWindowFocus = () => {
+    this.now.set(Date.now());
+    void this.refreshIfStale();
+  };
 
   protected readonly pageIndex = signal(0);
   protected readonly loading = signal(true);
@@ -219,26 +159,13 @@ export class BgsTableComponent implements OnDestroy {
   protected readonly copiedSystem = signal<string | null>(null);
   private copiedResetHandle: ReturnType<typeof setTimeout> | undefined;
   protected readonly errorMessage = signal<string | null>(null);
-  /** Set while fetching every page for a full-dataset sort; null the rest of the time. */
-  protected readonly loadProgress = signal<{ loaded: number; total: number } | null>(null);
-  /** Set while an export (which needs the full dataset, however the table is currently paging) is being prepared. */
-  protected readonly exporting = signal(false);
   protected readonly exportError = signal<string | null>(null);
 
-  protected readonly mode = signal<Mode>('paged');
+  protected readonly mode = signal<Mode>('column');
 
-  // --- paged mode state -----------------------------------------------------------------
-  /**
-   * Rows fetched so far, in server order — grows one server page (of whatever size the API
-   * hands back, see {@link CanonnBgsService.getPage}) at a time as the user pages past what's
-   * already buffered. The *displayed* page size ({@link pageSize}) is independent of the
-   * server's own page size, so a display page is just a client-side slice of this buffer.
-   */
-  private readonly rows = signal<BgsRow[]>([]);
-  private readonly totalCount = signal<number | null>(null);
-  /** How many server pages (via `bgsService.getPage`) are already folded into {@link rows}. */
-  private nextServerPageIndex = 0;
-  /** The first system loaded on startup — the default Distance reference until the user searches one. */
+  /** Every system, in the API's (name) order; null until the list has loaded. */
+  private readonly allRows = signal<BgsRow[] | null>(null);
+  /** The first system, the default reference for the search box until the user searches one. */
   private readonly defaultAnchor = signal<BgsRow | null>(null);
 
   // --- 'distance' mode state --------------------------------------------------------------
@@ -246,11 +173,9 @@ export class BgsTableComponent implements OnDestroy {
   private readonly selectedAnchor = signal<AnchorPoint | null>(null);
 
   // --- 'column' mode state --------------------------------------------------------------
-  private readonly sortColumn = signal<SortColumn | null>(null);
-  private readonly sortDirection = signal<SortDirection>('asc');
-
-  /** Every system, fetched once needed for a 'distance' or 'column' sort; reused for later re-sorts. */
-  private readonly fullDataset = signal<BgsRow[] | null>(null);
+  /** Priority, most urgent first, until the user picks another column. */
+  private readonly sortColumn = signal<SortColumn | null>('priority');
+  private readonly sortDirection = signal<SortDirection>('desc');
 
   // --- system search box ------------------------------------------------------------------
   protected readonly systemSearchControl = new FormControl(DEFAULT_SEARCH_SYSTEM);
@@ -264,10 +189,10 @@ export class BgsTableComponent implements OnDestroy {
 
   // --- quick filters ------------------------------------------------------------------------
   protected readonly pageSizeOptions = PAGE_SIZE_OPTIONS;
-  /** Rows shown per display page until the user picks a different size — deliberately small so a big API page (issue #7) doesn't dump hundreds of rows onto the screen at once. */
+  /** Rows shown per page until the user picks a different size. */
   protected readonly pageSize = signal<number>(PAGE_SIZE_OPTIONS[0]);
   protected readonly warElectionOnly = signal(false);
-  /** FR-5: "needs recon" pairs naturally with the Distance sort — stale systems near me. */
+  /** FR-5: "needs recon" pairs naturally with the distance sort — stale systems near me. */
   protected readonly needsReconOnly = signal(false);
   protected readonly architectFilterMode = signal<ArchitectFilterMode>('all');
   private readonly architectFilterName = signal('');
@@ -285,10 +210,10 @@ export class BgsTableComponent implements OnDestroy {
   protected readonly architectFilterSuggestions = computed(() =>
     suggestArchitects(this.architectRegistryNames(), this.architectFilterQuery()),
   );
-  /** Every faction name seen so far — grows as more of the dataset is loaded. */
+  /** Every faction name in the list. */
   private readonly knownFactionNames = computed(() => {
     const names = new Set<string>();
-    for (const row of this.fullDataset() ?? this.rows()) {
+    for (const row of this.allRows() ?? []) {
       for (const faction of row.factions) {
         names.add(faction.name);
       }
@@ -299,93 +224,62 @@ export class BgsTableComponent implements OnDestroy {
     suggestArchitects(this.knownFactionNames(), this.factionFilterQuery()),
   );
 
-  protected readonly filtersActive = computed(
-    () =>
-      this.warElectionOnly() ||
-      this.needsReconOnly() ||
-      this.architectFilterMode() !== 'all' ||
-      this.factionFilterMode() !== 'all',
-  );
-
-  /**
-   * Whether the table is paginating client-side over {@link fullDataset} rather than buffering
-   * server pages on demand — required by any quick filter (there's no server-side support for
-   * one) and by the existing 'distance'/'column' sort modes, which both need every row to filter
-   * or sort correctly. A display page size smaller than a server page does *not* require this:
-   * {@link visibleRows} just slices {@link rows}, growing it a server page at a time as needed.
-   * Sticky: once the full dataset has been fetched there's no reason to go back to incremental
-   * buffering.
-   */
-  protected readonly usingFullDataset = computed(
-    () => this.mode() !== 'paged' || this.filtersActive() || this.fullDataset() !== null,
-  );
-
-  /** {@link fullDataset}, narrowed by the active quick filters. */
-  private readonly filteredDataset = computed<BgsRow[] | null>(() => {
-    const full = this.fullDataset();
-    if (!full) {
-      return null;
-    }
-    let rows = full;
+  /** The quick filters as {@link filterRows} takes them. A filter that's off is simply absent. */
+  private readonly filters = computed<RowFilters>(() => {
+    const filters: RowFilters = {};
     if (this.warElectionOnly()) {
-      rows = rows.filter(row => row.warState !== null || row.electionState !== null);
+      filters.warElection = true;
     }
     if (this.needsReconOnly()) {
-      rows = rows.filter(row => this.priorityFor(row).needsRecon);
+      filters.needsRecon = true;
     }
     switch (this.architectFilterMode()) {
       case 'none':
-        rows = rows.filter(row => row.architect === null);
+        filters.noArchitect = true;
         break;
-      case 'name': {
-        const key = this.architectFilterName().toLowerCase();
-        rows = rows.filter(row => (row.architect ?? '').toLowerCase() === key);
+      case 'name':
+        filters.architect = this.architectFilterName();
         break;
-      }
     }
     switch (this.factionFilterMode()) {
-      // A system counts if the faction is present there *or* is its preferred faction — which
-      // includes the grey, Canonn-station-derived preference that no registry row records.
       case 'canonn':
-        rows = rows.filter(
-          row =>
-            row.factions.some(faction => this.canonnFactionNames.has(faction.name)) ||
-            this.canonnFactionNames.has(row.preferredFaction ?? ''),
-        );
+        filters.hasFaction = [CANONN_FACTION, CDSR_FACTION];
         break;
-      case 'name': {
-        const key = this.factionFilterName().toLowerCase();
-        rows = rows.filter(
-          row =>
-            row.factions.some(faction => faction.name.toLowerCase() === key) ||
-            (row.preferredFaction ?? '').toLowerCase() === key,
-        );
+      case 'name':
+        filters.hasFaction = [this.factionFilterName()];
         break;
-      }
     }
-    return rows;
+    return filters;
   });
 
+  /** The list narrowed by the active quick filters. */
+  private readonly filteredRows = computed<BgsRow[] | null>(() => {
+    const all = this.allRows();
+    if (!all) {
+      return null;
+    }
+    const filters = this.filters();
+    if (Object.keys(filters).length === 0) {
+      return all;
+    }
+    // The clock only matters to the needs-recon test; reading it otherwise would re-sort every minute.
+    return filterRows(all, filters, filters.needsRecon ? this.now() : 0);
+  });
+
+  /** {@link filteredRows} in the current order. */
   private readonly sortedRows = computed<BgsRow[] | null>(() => {
-    const base = this.filteredDataset();
+    const base = this.filteredRows();
     if (!base) {
       return null;
     }
     switch (this.mode()) {
       case 'distance': {
-        const anchorPoint = this.selectedAnchor();
-        return anchorPoint ? [...base].sort((a, b) => distanceLy(anchorPoint, a) - distanceLy(anchorPoint, b)) : base;
+        const origin = this.selectedAnchor();
+        return origin ? sortRowsByDistance(base, origin) : base;
       }
       case 'column': {
         const column = this.sortColumn();
-        if (!column) {
-          return base;
-        }
-        const direction = this.sortDirection();
-        if (column === 'priority') {
-          return [...base].sort((a, b) => comparePriorityRows(a, b, direction, this.now()));
-        }
-        return [...base].sort((a, b) => compareColumnValues(columnValue(a, column), columnValue(b, column), direction));
+        return column ? sortRowsByColumn(base, column, this.sortDirection()) : base;
       }
       default:
         return base;
@@ -393,10 +287,9 @@ export class BgsTableComponent implements OnDestroy {
   });
 
   /**
-   * The system the Distance column (and its tooltip, and the search box) is currently
-   * measured from — always "the first system in the list": the first-ever-loaded system in
-   * paged mode, the searched system in distance mode (which may not itself be in the
-   * dataset, so the first *row* isn't necessarily 0.00 ly away), and whichever system
+   * The system the search box is currently showing — always "the first system in the list":
+   * the first system by default, the searched system in distance mode (which may not itself
+   * be a tracked system, so the first *row* isn't necessarily 0 ly away), and whichever system
    * currently tops the column sort in column mode.
    */
   protected readonly anchor = computed<AnchorPoint | null>(() => {
@@ -411,23 +304,18 @@ export class BgsTableComponent implements OnDestroy {
   });
   protected readonly anchorName = computed(() => this.anchor()?.systemName ?? null);
 
-  /** The rows for the currently-visible page, regardless of mode — a client-side slice either way. */
+  /** The rows for the currently-visible page. */
   protected readonly visibleRows = computed<BgsRow[]>(() => {
-    const source = this.usingFullDataset() ? this.sortedRows() : this.rows();
-    if (!source) {
+    const rows = this.sortedRows();
+    if (!rows) {
       return [];
     }
     const size = this.pageSize();
     const start = this.pageIndex() * size;
-    return source.slice(start, start + size);
+    return rows.slice(start, start + size);
   });
 
-  protected readonly displayTotalCount = computed(() => {
-    if (this.usingFullDataset()) {
-      return this.sortedRows()?.length ?? null;
-    }
-    return this.totalCount();
-  });
+  protected readonly displayTotalCount = computed(() => this.sortedRows()?.length ?? null);
 
   protected readonly displayTotalPages = computed(() => {
     const count = this.displayTotalCount();
@@ -436,21 +324,24 @@ export class BgsTableComponent implements OnDestroy {
 
   protected readonly hasNextPage = computed(() => {
     const total = this.displayTotalPages();
-    return total === null || this.pageIndex() + 1 < total;
+    return total !== null && this.pageIndex() + 1 < total;
   });
 
   constructor() {
-    void this.ensureBuffered(this.pageSize());
+    void this.loadSystems();
     void this.loadArchitectFilterNames();
     this.architectFilterControl.setValue(readYourName());
 
-    this.nowTimerHandle = setInterval(() => this.now.set(Date.now()), 60_000);
+    this.nowTimerHandle = setInterval(() => {
+      this.now.set(Date.now());
+      void this.refreshIfStale();
+    }, 60_000);
     window.addEventListener('focus', this.onWindowFocus);
 
-    // Keep the search box showing whatever system the Distance column is currently
-    // measured from — the first-loaded system, a search result, or the current top row
-    // of a column sort — without fighting the user's own in-progress typing (this only
-    // reacts to the anchor actually changing, which only happens on a deliberate action).
+    // Keep the search box showing whatever system the table is currently measured from — the
+    // first system, a search result, or the current top row of a column sort — without
+    // fighting the user's own in-progress typing (this only reacts to the anchor actually
+    // changing, which only happens on a deliberate action).
     effect(() => {
       const name = this.anchorName();
       if (name !== null) {
@@ -464,14 +355,6 @@ export class BgsTableComponent implements OnDestroy {
     this.factionFilterControl.valueChanges
       .pipe(takeUntilDestroyed())
       .subscribe(value => this.factionFilterQuery.set(value));
-
-    // A quick filter needs the full dataset — fetch it the moment one becomes active
-    // (sortByColumn/selectAnchorPoint already do the same for sort modes).
-    effect(() => {
-      if (this.usingFullDataset()) {
-        void this.ensureFullDataset();
-      }
-    });
   }
 
   ngOnDestroy(): void {
@@ -481,6 +364,48 @@ export class BgsTableComponent implements OnDestroy {
     clearTimeout(this.copiedResetHandle);
     clearInterval(this.nowTimerHandle);
     window.removeEventListener('focus', this.onWindowFocus);
+  }
+
+  /** Loads the whole system list (once; the service remembers it). */
+  private async loadSystems(): Promise<void> {
+    this.loading.set(true);
+    this.errorMessage.set(null);
+    try {
+      const snapshot = await this.bgsService.getSystems();
+      this.allRows.set(snapshot.rows);
+      if (this.defaultAnchor() === null && snapshot.rows.length > 0) {
+        this.defaultAnchor.set(snapshot.rows[0]);
+      }
+    } catch (error) {
+      this.errorMessage.set(
+        error instanceof Error ? `Failed to load BGS data: ${error.message}` : 'Failed to load BGS data.',
+      );
+    } finally {
+      this.loading.set(false);
+    }
+  }
+
+  /**
+   * Swaps in a newer list when the service has fetched one: it serves what it holds until that is
+   * ten minutes old and fetches again after, so asking is cheap. A failed refresh is ignored —
+   * the table keeps showing what it has, and the next tick or focus tries again.
+   */
+  private async refreshIfStale(): Promise<void> {
+    if (this.loading() || this.allRows() === null) {
+      return;
+    }
+    try {
+      const snapshot = await this.bgsService.getSystems();
+      if (snapshot.rows !== this.allRows()) {
+        this.allRows.set(snapshot.rows);
+        const pages = this.displayTotalPages();
+        if (pages !== null && this.pageIndex() >= pages) {
+          this.pageIndex.set(pages - 1);
+        }
+      }
+    } catch {
+      // Keep what is on screen.
+    }
   }
 
   /** Copies a system name to the clipboard and shows a brief checkmark in its place. */
@@ -495,61 +420,34 @@ export class BgsTableComponent implements OnDestroy {
     this.copiedResetHandle = setTimeout(() => this.copiedSystem.set(null), 1500);
   }
 
-  /** Exports every row matching the current quick filters (regardless of sort/page) as a JSON file. */
-  protected async exportJson(): Promise<void> {
-    const rows = await this.rowsForExport();
-    if (!rows) {
-      return;
-    }
-    try {
-      exportRowsToJson(rows, this.now());
-    } catch {
-      this.exportError.set('Failed to export data. Please try again.');
-    }
+  /** Exports every row matching the current quick filters (regardless of page), in the current order, as a JSON file. */
+  protected exportJson(): void {
+    this.exportRows(rows => exportRowsToJson(rows, this.now()));
   }
 
   /** Exports the same rows as {@link exportJson}, as a CSV file. */
-  protected async exportCsv(): Promise<void> {
-    const rows = await this.rowsForExport();
+  protected exportCsv(): void {
+    this.exportRows(rows => exportRowsToCsv(rows, this.now()));
+  }
+
+  private exportRows(write: (rows: BgsRow[]) => void): void {
+    this.exportError.set(null);
+    const rows = this.sortedRows();
     if (!rows) {
+      this.exportError.set('Failed to load data to export.');
       return;
     }
     try {
-      exportRowsToCsv(rows, this.now());
+      write(rows);
     } catch {
       this.exportError.set('Failed to export data. Please try again.');
-    }
-  }
-
-  /**
-   * Every row matching the current quick filters, loading the full dataset first if the
-   * table hasn't needed it yet (e.g. still browsing the first buffered page) — an export is
-   * for "process the data yourself", so it always covers everything in scope, not just
-   * whatever page happens to be on screen. Null if the fetch failed.
-   */
-  private async rowsForExport(): Promise<BgsRow[] | null> {
-    this.exportError.set(null);
-    this.exporting.set(true);
-    try {
-      await this.ensureFullDataset();
-      const rows = this.filteredDataset();
-      if (!rows) {
-        this.exportError.set('Failed to load data to export.');
-        return null;
-      }
-      return rows;
-    } catch {
-      this.exportError.set('Failed to export data. Please try again.');
-      return null;
-    } finally {
-      this.exporting.set(false);
     }
   }
 
   /**
    * Left/right arrow keys page through the table, as the pager's Previous/Next buttons do. Ignored
    * while a dialog is open, while typing or choosing in a field, with modifier keys held, or while
-   * a page is still loading.
+   * the list is still loading.
    */
   @HostListener('window:keydown', ['$event'])
   protected onArrowKey(event: KeyboardEvent): void {
@@ -582,7 +480,6 @@ export class BgsTableComponent implements OnDestroy {
     if (this.pageIndex() === 0) {
       return;
     }
-    // Earlier pages are always already buffered — no fetch needed either way.
     this.pageIndex.update(p => p - 1);
   }
 
@@ -590,34 +487,16 @@ export class BgsTableComponent implements OnDestroy {
     if (!this.hasNextPage()) {
       return;
     }
-    const newIndex = this.pageIndex() + 1;
-    if (this.usingFullDataset()) {
-      this.pageIndex.set(newIndex);
-    } else {
-      void this.advanceBufferedPage(newIndex);
-    }
+    this.pageIndex.update(p => p + 1);
   }
 
   protected retry(): void {
-    if (this.usingFullDataset()) {
-      void this.ensureFullDataset();
-    } else {
-      void this.ensureBuffered((this.pageIndex() + 1) * this.pageSize());
-    }
-  }
-
-  /** Buffers whatever's needed for display page `newIndex`, then shows it. */
-  private async advanceBufferedPage(newIndex: number): Promise<void> {
-    await this.ensureBuffered((newIndex + 1) * this.pageSize());
-    this.pageIndex.set(newIndex);
+    void this.loadSystems();
   }
 
   protected setPageSize(size: number): void {
     this.pageSize.set(size);
     this.pageIndex.set(0);
-    if (!this.usingFullDataset()) {
-      void this.ensureBuffered(size);
-    }
   }
 
   protected toggleWarElection(): void {
@@ -678,19 +557,19 @@ export class BgsTableComponent implements OnDestroy {
 
   /**
    * Sorts the whole table by the given column, toggling direction on a repeat click. A fresh
-   * click defaults to ascending, except Priority — there "first click" should read as
-   * "highest priority first", not the numerically-smallest score first.
+   * click defaults to ascending, except where "first click" should read as "most first": Priority
+   * (highest first, not the numerically-smallest score) and the influence changes (biggest gain
+   * first — a repeat click then brings the biggest losses to the top).
    */
   protected sortByColumn(column: SortColumn): void {
     if (this.mode() === 'column' && this.sortColumn() === column) {
       this.sortDirection.update(d => (d === 'asc' ? 'desc' : 'asc'));
     } else {
       this.sortColumn.set(column);
-      this.sortDirection.set(column === 'priority' ? 'desc' : 'asc');
+      this.sortDirection.set(MOST_FIRST_COLUMNS.has(column) ? 'desc' : 'asc');
       this.mode.set('column');
     }
     this.pageIndex.set(0);
-    void this.ensureFullDataset();
   }
 
   /** '▲'/'▼' for the currently-sorted column's header, null for every other header. */
@@ -706,12 +585,12 @@ export class BgsTableComponent implements OnDestroy {
     return computeFreshness(row.updatedAt, this.now());
   }
 
-  /** The Priority column's badge contents for a row, recomputed as {@link now} ticks forward (its recon-age flag depends on elapsed time, though it no longer affects the score itself). */
+  /** The Priority column's badge contents for a row, with its recon-age flag recomputed as {@link now} ticks forward (that flag doesn't affect the score itself). */
   protected priorityFor(row: BgsRow): PriorityAssessment {
-    return computePriorityAssessment(row, this.now());
+    return currentPriority(row, this.now());
   }
 
-  /** Hover text for the Priority pill: the reasons list, plus a refresh request when the reading is stale — informational, since staleness no longer changes the score. */
+  /** Hover text for the Priority pill: the reasons list, plus a refresh request when the reading is stale — informational, since staleness doesn't change the score. */
   protected priorityTitle(priority: PriorityAssessment): string {
     if (priority.tier === 'out-of-scope') {
       return 'Do not work the BGS in this system';
@@ -751,6 +630,22 @@ export class BgsTableComponent implements OnDestroy {
       });
   }
 
+  /** Opens the influence history chart for a system, from one of its sparklines; `faction` is the line drawn heavier. */
+  protected openInfluenceChart(row: BgsRow, faction: string): void {
+    const data: InfluenceChartDialogData = {
+      systemName: row.systemName,
+      systemAddress: row.systemAddress,
+      averages: row.influenceAverages,
+      highlight: faction,
+    };
+    this.dialog.open(InfluenceChartDialogComponent, {
+      data,
+      autoFocus: 'first-tabbable',
+      restoreFocus: true,
+      maxWidth: 'min(900px, 94vw)',
+    });
+  }
+
   /** Hover/aria text for a row's info button. */
   protected infoButtonTitle(row: BgsRow): string {
     return `System Info for ${row.systemName}`;
@@ -763,21 +658,19 @@ export class BgsTableComponent implements OnDestroy {
       data,
       autoFocus: 'first-tabbable',
       restoreFocus: true,
-      // Matches .bgs-container's own max-width (minus its side padding) — the dialog should
-      // never read as wider than the table it's explaining a row of.
+      // Wide enough for its faction and station tables, but not stretched across a full-width
+      // page, where the rows would be too far from their labels to read.
       maxWidth: 'min(1168px, 90vw)',
     });
   }
 
-  /** Reflects a successful submission in whichever row collections are currently loaded. */
+  /** Reflects a successful submission in the loaded rows — including re-scoring the system's priority. */
   private applyAssignment(submission: ArchitectSubmission): void {
-    const patch = (rows: BgsRow[]): BgsRow[] =>
-      rows.map(row => (row.systemName === submission.systemName ? rowWithAssignment(row, submission) : row));
-    this.rows.update(patch);
-    const full = this.fullDataset();
-    if (full) {
-      this.fullDataset.set(patch(full));
-    }
+    this.allRows.update(rows =>
+      rows
+        ? rows.map(row => (row.systemName === submission.systemName ? rowWithAssignment(row, submission) : row))
+        : rows,
+    );
   }
 
   /** Bound to the search input's (input) event; debounces suggestion lookups. */
@@ -831,7 +724,7 @@ export class BgsTableComponent implements OnDestroy {
     }
   }
 
-  /** Resolves `name` to coordinates (via the typeahead cache, or a fresh lookup) and re-anchors the table on it. */
+  /** Resolves `name` to coordinates (via the typeahead cache, or a fresh lookup) and re-sorts the table by distance from it. */
   private async searchBySystemName(name: string): Promise<void> {
     this.searchError.set(null);
 
@@ -846,19 +739,15 @@ export class BgsTableComponent implements OnDestroy {
       const response = await this.bgsService.typeahead(name);
       const match = (response.min_max ?? []).find(s => s.name.toLowerCase() === name.toLowerCase());
       if (!match) {
-        this.loading.set(false);
         this.searchError.set(`System "${name}" not found.`);
         return;
       }
       this.typeaheadCache.set(match.name.toLowerCase(), match);
-      // Cleared here because ensureFullDataset returns early (without clearing it) when the
-      // dataset is already loaded — leaving the pager's buttons disabled. It sets the flag
-      // again itself if the dataset still has to load.
-      this.loading.set(false);
       this.selectAnchorPoint(toAnchorPoint(match));
     } catch {
-      this.loading.set(false);
       this.searchError.set(`Unable to search for "${name}". Please try again.`);
+    } finally {
+      this.loading.set(false);
     }
   }
 
@@ -866,123 +755,6 @@ export class BgsTableComponent implements OnDestroy {
     this.selectedAnchor.set(point);
     this.mode.set('distance');
     this.pageIndex.set(0);
-    void this.ensureFullDataset();
-  }
-
-  /**
-   * Buffers server pages (appending to {@link rows}) until at least `minRows` are available, or
-   * the server has no more to give — so a display page size smaller than the server's own page
-   * size never has to fetch more than what's actually needed to show it (issue #7 follow-up:
-   * the server's page size grew to 500, but a 10-row display page shouldn't pull all of that
-   * upfront, let alone every subsequent server page the way a full-dataset fetch would).
-   */
-  private async ensureBuffered(minRows: number): Promise<void> {
-    while (this.rows().length < minRows) {
-      const total = this.totalCount();
-      if (total !== null && this.rows().length >= total) {
-        return; // that's everything the server has.
-      }
-      if (!(await this.fetchNextServerPage())) {
-        return; // fetch failed; errorMessage is already set for the user to retry.
-      }
-    }
-    this.prefetchIfNearBufferEnd(minRows);
-  }
-
-  /**
-   * Kicks off a background fetch of the next server page once the caller's just-satisfied
-   * `minRows` is within one display page of the buffer's actual end — so paging forward stays
-   * instant right as the buffer runs low, without pulling in a server page's worth of rows (up
-   * to hundreds, per issue #7) far ahead of when they're actually needed.
-   */
-  private prefetchIfNearBufferEnd(minRows: number): void {
-    const total = this.totalCount();
-    const buffered = this.rows().length;
-    if (total !== null && buffered >= total) {
-      return; // nothing left to prefetch.
-    }
-    if (buffered - minRows < this.pageSize()) {
-      this.bgsService.prefetchPage(this.nextServerPageIndex);
-    }
-  }
-
-  /**
-   * In-flight server-page fetch, so overlapping `ensureBuffered` callers — the initial load
-   * racing a quick page-size change, or a double-clicked Next — share one request instead of
-   * each capturing the same {@link nextServerPageIndex} and issuing a duplicate `getPage` call
-   * (which would also append that page's rows to {@link rows} twice).
-   */
-  private serverPageFetch: Promise<boolean> | null = null;
-
-  /** Fetches and appends the next not-yet-buffered server page. Returns whether it succeeded. */
-  private fetchNextServerPage(): Promise<boolean> {
-    if (this.serverPageFetch) {
-      return this.serverPageFetch;
-    }
-    const fetch = this.doFetchNextServerPage();
-    this.serverPageFetch = fetch;
-    void fetch.finally(() => {
-      if (this.serverPageFetch === fetch) {
-        this.serverPageFetch = null;
-      }
-    });
-    return fetch;
-  }
-
-  private async doFetchNextServerPage(): Promise<boolean> {
-    this.loading.set(true);
-    this.errorMessage.set(null);
-    try {
-      const page = this.nextServerPageIndex;
-      const result = await this.bgsService.getPage(page);
-      this.nextServerPageIndex = page + 1;
-      this.rows.update(existing => [...existing, ...result.rows]);
-      this.totalCount.set(result.totalCount);
-      this.loading.set(false);
-
-      if (this.defaultAnchor() === null && result.rows.length > 0) {
-        this.defaultAnchor.set(result.rows[0]);
-      }
-      return true;
-    } catch (error) {
-      this.loading.set(false);
-      this.errorMessage.set(
-        error instanceof Error ? `Failed to load BGS data: ${error.message}` : 'Failed to load BGS data.',
-      );
-      return false;
-    }
-  }
-
-  /** In-flight full-dataset fetch, so the effect below and a deliberate sort/filter don't race to start a second one. */
-  private fullDatasetPromise: Promise<void> | null = null;
-
-  /** Fetches the full dataset once (subsequent re-sorts/filters just reorder or narrow what's already cached). */
-  private async ensureFullDataset(): Promise<void> {
-    if (this.fullDataset()) {
-      return;
-    }
-    if (this.fullDatasetPromise) {
-      return this.fullDatasetPromise;
-    }
-    this.loading.set(true);
-    this.errorMessage.set(null);
-    this.fullDatasetPromise = (async () => {
-      try {
-        const all = await this.bgsService.getAllRows((loaded, total) => {
-          this.loadProgress.set({ loaded, total });
-        });
-        this.fullDataset.set(all);
-      } catch (error) {
-        this.errorMessage.set(
-          error instanceof Error ? `Failed to load full dataset: ${error.message}` : 'Failed to load full dataset.',
-        );
-      } finally {
-        this.loading.set(false);
-        this.loadProgress.set(null);
-        this.fullDatasetPromise = null;
-      }
-    })();
-    return this.fullDatasetPromise;
   }
 
   /** Loads the architect registry's names once, for the Architect quick filter's typeahead. */

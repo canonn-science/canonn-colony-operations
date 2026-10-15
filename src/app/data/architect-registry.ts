@@ -42,18 +42,6 @@ function nameKey(name: string): string {
   return name.trim().toLowerCase();
 }
 
-/** The system -> architect lookup the table's rows are built from; last row wins per system. */
-export function buildArchitectInfoMap(rows: readonly ArchitectRegistryRow[]): Map<string, ArchitectInfo> {
-  const map = new Map<string, ArchitectInfo>();
-  for (const row of rows) {
-    if (!row.systemName) {
-      continue;
-    }
-    map.set(row.systemName, { architect: row.architect, affiliation: row.affiliation, preferredFaction: row.preferredFaction });
-  }
-  return map;
-}
-
 /** Every architect name in the registry, in the spelling of their most recent row, A-Z. */
 export function architectNames(rows: readonly ArchitectRegistryRow[]): string[] {
   const byKey = new Map<string, string>();
