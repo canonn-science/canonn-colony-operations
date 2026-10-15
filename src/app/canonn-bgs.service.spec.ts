@@ -5,7 +5,7 @@ import { logger } from './data/logger';
 import { BgsConfig } from './data/priority';
 
 const QUERY_BASE = 'https://us-central1-canonn-api-236217.cloudfunctions.net/query';
-const SYSTEMS_URL = `${QUERY_BASE}/bgs/systems?view=all&slim=1`;
+const SYSTEMS_URL = `${QUERY_BASE}/bgs/systems?view=all`;
 
 /** The constants the API sends along with the list. */
 const CONFIG: BgsConfig = {
@@ -129,6 +129,31 @@ describe('CanonnBgsService loading the whole list', () => {
     await service.getSystems();
 
     expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([SYSTEMS_URL]);
+  });
+
+  describe('influence history', () => {
+    const ADDRESS = '358462034634';
+
+    function serve(): void {
+      fetchMock.mockImplementation((url: string) => {
+        if (url.endsWith(`/${ADDRESS}/history`)) {
+          const rows = [{ faction_name: 'Canonn', influence: 0.5, first_seen: '2026-10-01T00:00:00Z' }];
+          return Promise.resolve(textResponse(JSON.stringify({ data: rows })));
+        }
+        return Promise.reject(new Error(`Unexpected fetch in test: ${url}`));
+      });
+    }
+
+    it("fetches one system's history on demand, and makes no other request for it", async () => {
+      serve();
+
+      const rows = await service.getInfluenceHistory(ADDRESS);
+
+      expect(rows).toHaveLength(1);
+      expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
+        `${QUERY_BASE}/bgs/systems/${ADDRESS}/history`,
+      ]);
+    });
   });
 
   it('serves the list from memory once it has it', async () => {
@@ -298,6 +323,30 @@ describe('CanonnBgsService record mapping', () => {
     expect(withoutData.population).toBeNull();
   });
 
+  it("carries each tracked faction's average influence from the list, so the chart needs no request for it", async () => {
+    api.records = [
+      systemRecord('Varati', { avg_influence: { Canonn: 0.711, 'Canonn Deep Space Research': null } }),
+      systemRecord('New'),
+    ];
+
+    const [varati, fresh] = await rows();
+
+    expect(varati.influenceAverages).toEqual({ Canonn: 0.711, 'Canonn Deep Space Research': null });
+    expect(fresh.influenceAverages).toEqual({});
+  });
+
+  it('keeps the system address as a string, and blank when the API sends none', async () => {
+    api.records = [
+      systemRecord('Varati', { system_address: '3932277478106' }),
+      systemRecord('No Address'),
+    ];
+
+    const [varati, none] = await rows();
+
+    expect(varati.systemAddress).toBe('3932277478106');
+    expect(none.systemAddress).toBe('');
+  });
+
   it('maps the controlling faction, coordinates, factions and last-seen time', async () => {
     api.records = [
       systemWithPresences(
@@ -318,6 +367,45 @@ describe('CanonnBgsService record mapping', () => {
     expect(row.canonnInfluence).toBeCloseTo(90);
     expect(row.factions.map(f => f.name)).toEqual(['Canonn', 'Small Faction']);
     expect(row.factionDetails[0]).toMatchObject({ allegiance: 'Independent', government: 'Cooperative' });
+  });
+
+  it("maps each tracked faction's influence history to percentages, oldest first", async () => {
+    api.records = [
+      systemWithPresences('Varati', [{ name: 'Canonn', influence: 0.5 }], {
+        sparkline: { Canonn: [0.25, 0.4, 0.5], 'Canonn Deep Space Research': [0.1, 0.125] },
+      }),
+      systemWithPresences('New', [{ name: 'Canonn', influence: 0.5 }]),
+    ];
+
+    const [varati, fresh] = await rows();
+
+    expect(varati.canonnHistory).toEqual([25, 40, 50]);
+    expect(varati.cdsrHistory).toEqual([10, 12.5]);
+    expect(fresh.canonnHistory).toEqual([]);
+    expect(fresh.cdsrHistory).toEqual([]);
+  });
+
+  it("maps each tracked faction's recent influence change from the tracker's trend", async () => {
+    api.records = [
+      systemWithPresences('Varati', [{ name: 'Canonn', influence: 0.5 }], {
+        trend: {
+          Canonn: { change_7d: 0.027, change_24h: 0.004, per_day: 0.004, span_days: 6.5, direction: 'up' },
+          'Canonn Deep Space Research': { change_7d: null, change_24h: -0.01, per_day: -0.01, span_days: 0.8, direction: 'down' },
+        },
+      }),
+      systemWithPresences('New', [{ name: 'Canonn', influence: 0.5 }], {
+        trend: { Canonn: { change_7d: null, change_24h: null, per_day: null, span_days: null, direction: 'unknown' } },
+      }),
+    ];
+
+    const [varati, fresh] = await rows();
+
+    expect(varati.canonnChange).toMatchObject({ window: '7d', direction: 'up', spanDays: 6.5 });
+    expect(varati.canonnChange?.points).toBeCloseTo(2.7);
+    expect(varati.cdsrChange).toMatchObject({ window: '24h', direction: 'down' });
+    expect(varati.cdsrChange?.points).toBeCloseTo(-1);
+    expect(fresh.canonnChange).toBeNull();
+    expect(fresh.cdsrChange).toBeNull();
   });
 
   it('copes with a system the tracker has no snapshot of (no faction presences)', async () => {

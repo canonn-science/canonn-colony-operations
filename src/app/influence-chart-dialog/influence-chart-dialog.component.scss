@@ -1,0 +1,217 @@
+:host {
+  display: block;
+}
+
+.chart-title {
+  color: var(--color-accent);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.chart-subtitle {
+  display: block;
+  margin-top: 2px;
+  color: var(--color-text-muted);
+  font-size: 0.8rem;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+
+mat-dialog-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: min(780px, 80vw);
+  max-height: 75vh;
+  padding-top: 4px;
+  overflow-y: auto;
+}
+
+.chart-note {
+  margin: 0;
+  padding: 24px 16px;
+  border: 1px solid var(--color-border-muted);
+  border-radius: 8px;
+  background-color: var(--color-surface-2);
+  color: var(--color-text-2);
+  text-align: center;
+
+  p {
+    margin: 0 0 12px;
+  }
+}
+
+.chart-note--error {
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+}
+
+// Legend: one toggle per line, in the table's own chip style.
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  border: 1px solid var(--color-border-muted);
+  border-radius: 999px;
+  background-color: var(--color-surface-2);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+
+  &:hover,
+  &:focus-visible {
+    border-color: var(--color-accent);
+  }
+
+  &--off {
+    opacity: 0.45;
+
+    .legend-label {
+      text-decoration: line-through;
+    }
+  }
+}
+
+.legend-swatch {
+  display: inline-block;
+  width: 18px;
+  height: 0;
+  border-top: 3px solid currentColor;
+
+  &--dashed {
+    border-top-style: dashed;
+    border-top-width: 2px;
+  }
+}
+
+.legend-value {
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.chart-wrap {
+  position: relative;
+  padding: 8px;
+  border: 1px solid var(--color-border-muted);
+  border-radius: 8px;
+  background-color: var(--color-surface-3);
+}
+
+.chart {
+  display: block;
+  width: 100%;
+  height: auto;
+  touch-action: pan-y;
+  cursor: crosshair;
+
+  &:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+}
+
+.grid {
+  stroke: var(--color-surface-hover);
+  stroke-width: 1;
+  stroke-dasharray: 2 4;
+}
+
+.baseline {
+  stroke: var(--color-border);
+  stroke-width: 1;
+}
+
+.axis-label {
+  fill: var(--color-text-muted);
+  font-size: 11px;
+}
+
+.series {
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.series--heavy {
+  stroke-width: 3.5;
+}
+
+.series--dashed {
+  stroke-width: 1.5;
+  stroke-dasharray: 6 5;
+  opacity: 0.8;
+}
+
+.reading {
+  stroke: var(--color-surface-3);
+  stroke-width: 2;
+}
+
+.guide {
+  stroke: var(--color-text-muted);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+
+.chart-tooltip {
+  position: absolute;
+  top: 16px;
+  z-index: 1;
+  min-width: 170px;
+  max-width: 260px;
+  margin-left: 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background-color: var(--color-surface);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+  font-size: 0.8rem;
+  pointer-events: none;
+
+  &--left {
+    transform: translateX(-100%);
+    margin-left: -12px;
+  }
+}
+
+.tooltip-when {
+  margin-bottom: 4px;
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+.tooltip-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  line-height: 1.6;
+}
+
+.tooltip-swatch {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+.tooltip-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tooltip-value {
+  color: var(--color-text-bright);
+  font-variant-numeric: tabular-nums;
+}

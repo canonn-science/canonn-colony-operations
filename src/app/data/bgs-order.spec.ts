@@ -11,6 +11,12 @@ function row(systemName: string, overrides: Partial<BgsRow> = {}): BgsRow {
     controllingFaction: null,
     canonnInfluence: null,
     cdsrInfluence: null,
+    canonnHistory: [],
+    cdsrHistory: [],
+    canonnChange: null,
+    cdsrChange: null,
+    systemAddress: '',
+    influenceAverages: {},
     architect: null,
     notAColony: false,
     preferredFaction: null,
@@ -114,6 +120,26 @@ describe('sortRowsByColumn', () => {
     const expected = ['many stations', 'same stations, bigger', 'same all, more bodies', 'few stations', 'unknown'];
     expect(names(sortRowsByColumn(rows, 'priority', 'desc'))).toEqual(expected);
     expect(names(sortRowsByColumn(rows, 'priority', 'asc'))).toEqual(expected);
+  });
+
+  it('orders by the change in influence, biggest gain first when descending, no change figure last', () => {
+    const change = (points: number) => ({ points, window: '7d' as const, direction: 'up' as const, perDay: null, spanDays: 7 });
+    const rows = [
+      row('B', { canonnChange: change(-3) }),
+      row('A'),
+      row('C', { canonnChange: change(2.5) }),
+      row('D', { canonnChange: change(0) }),
+    ];
+
+    expect(names(sortRowsByColumn(rows, 'canonnChange', 'desc'))).toEqual(['C', 'D', 'B', 'A']);
+    expect(names(sortRowsByColumn(rows, 'canonnChange', 'asc'))).toEqual(['B', 'D', 'C', 'A']);
+  });
+
+  it('orders CDSR\'s change on its own figures, not Canonn\'s', () => {
+    const change = (points: number) => ({ points, window: '24h' as const, direction: 'down' as const, perDay: null, spanDays: 1 });
+    const rows = [row('X', { cdsrChange: change(-1) }), row('Y', { canonnChange: change(9), cdsrChange: change(4) })];
+
+    expect(names(sortRowsByColumn(rows, 'cdsrChange', 'desc'))).toEqual(['Y', 'X']);
   });
 
   it('does not change the rows it was given', () => {

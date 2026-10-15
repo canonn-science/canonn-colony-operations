@@ -19,6 +19,10 @@ app then does the sorting, the distance search, the quick filters and the paging
 changing any of them is instant. The Priority score is calculated here from the inputs and
 constants the API sends with the list, using the same rules as the API.
 
+The Canonn and CDSR columns each show a sparkline and the recent change in influence. Click a
+sparkline to open the system's full influence history: every faction over the last 30 days, with
+the tracked factions' averages, hover or arrow keys to read off a snapshot, and legend toggles.
+
 Data comes from the [Canonn BGS API](https://us-central1-canonn-api-236217.cloudfunctions.net/query/bgs/systems).
 
 ## Development server

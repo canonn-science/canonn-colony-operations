@@ -2,6 +2,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { MatDialog } from '@angular/material/dialog';
 import { BgsRow, BgsSnapshot, CanonnBgsService } from '../canonn-bgs.service';
 import { BgsConfig, NO_PRIORITY } from '../data/priority';
+import { InfluenceChartDialogComponent } from '../influence-chart-dialog/influence-chart-dialog.component';
 import { BgsTableComponent } from './bgs-table.component';
 
 /** A minimal, fully-populated row — tests override only the fields they care about. */
@@ -11,6 +12,12 @@ function row(systemName: string, overrides: Partial<BgsRow> = {}): BgsRow {
     controllingFaction: null,
     canonnInfluence: null,
     cdsrInfluence: null,
+    canonnHistory: [],
+    cdsrHistory: [],
+    canonnChange: null,
+    cdsrChange: null,
+    systemAddress: '',
+    influenceAverages: {},
     architect: null,
     notAColony: false,
     preferredFaction: null,
@@ -62,6 +69,7 @@ function snapshot(rows: BgsRow[]): BgsSnapshot {
 describe('BgsTableComponent over the whole list', () => {
   let fixture: ComponentFixture<BgsTableComponent>;
   let component: BgsTableComponent;
+  let dialogOpen: ReturnType<typeof vi.fn>;
   let service: {
     getSystems: ReturnType<typeof vi.fn>;
     getArchitectRegistry: ReturnType<typeof vi.fn>;
@@ -88,6 +96,7 @@ describe('BgsTableComponent over the whole list', () => {
   }
 
   beforeEach(async () => {
+    dialogOpen = vi.fn();
     service = {
       getSystems: vi.fn(),
       getArchitectRegistry: vi.fn().mockResolvedValue([]),
@@ -98,7 +107,7 @@ describe('BgsTableComponent over the whole list', () => {
       imports: [BgsTableComponent],
       providers: [
         { provide: CanonnBgsService, useValue: service },
-        { provide: MatDialog, useValue: {} },
+        { provide: MatDialog, useValue: { open: dialogOpen, openDialogs: [] } },
       ],
     }).compileComponents();
 
@@ -199,6 +208,39 @@ describe('BgsTableComponent over the whole list', () => {
 
       component['sortByColumn']('canonn');
       expect(visibleNames()[0]).toBe('System 249');
+    });
+
+    it('sorts a faction\'s change biggest gain first on the first click, then biggest loss first', () => {
+      const change = (points: number) => ({ points, window: '7d' as const, direction: 'up' as const, perDay: null, spanDays: 7 });
+      service.getSystems.mockResolvedValue(
+        snapshot([
+          row('Loser', { canonnChange: change(-4) }),
+          row('Winner', { canonnChange: change(6) }),
+          row('Steady', { canonnChange: change(0) }),
+          row('Unknown'),
+        ]),
+      );
+      void component['loadSystems']();
+
+      return fixture.whenStable().then(() => {
+        component['sortByColumn']('canonnChange');
+        expect(visibleNames()).toEqual(['Winner', 'Steady', 'Loser', 'Unknown']);
+        expect(component['sortIndicator']('canonnChange')).toBe('▼');
+
+        component['sortByColumn']('canonnChange');
+        expect(visibleNames()).toEqual(['Loser', 'Steady', 'Winner', 'Unknown']);
+        expect(component['sortIndicator']('canonnChange')).toBe('▲');
+      });
+    });
+
+    it('keeps the change and percentage sorts apart, only one active at a time', () => {
+      component['sortByColumn']('canonn');
+      expect(component['sortIndicator']('canonn')).toBe('▲');
+      expect(component['sortIndicator']('canonnChange')).toBeNull();
+
+      component['sortByColumn']('canonnChange');
+      expect(component['sortIndicator']('canonn')).toBeNull();
+      expect(component['sortIndicator']('canonnChange')).not.toBeNull();
     });
 
     it('starts again from the first page', () => {
@@ -349,6 +391,24 @@ describe('BgsTableComponent over the whole list', () => {
 
       expect(total()).toBe(TOTAL_SYSTEMS);
       expect(component['errorMessage']()).toBeNull();
+    });
+  });
+
+  describe('influence chart', () => {
+    it('opens the history chart of the system, highlighting the faction whose sparkline was clicked', () => {
+      const varati = row('Varati', { systemAddress: '3932277478106', influenceAverages: { Canonn: 0.45 } });
+
+      component['openInfluenceChart'](varati, 'Canonn Deep Space Research');
+
+      expect(dialogOpen).toHaveBeenCalledTimes(1);
+      const [dialogComponent, config] = dialogOpen.mock.calls[0];
+      expect(dialogComponent).toBe(InfluenceChartDialogComponent);
+      expect(config.data).toEqual({
+        systemName: 'Varati',
+        systemAddress: '3932277478106',
+        averages: { Canonn: 0.45 },
+        highlight: 'Canonn Deep Space Research',
+      });
     });
   });
 

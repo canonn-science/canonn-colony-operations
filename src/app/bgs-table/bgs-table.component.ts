@@ -32,6 +32,12 @@ import {
   AssignArchitectDialogData,
 } from '../assign-architect-dialog/assign-architect-dialog.component';
 import { CanonnLogoComponent } from '../canonn-logo/canonn-logo.component';
+import { InfluenceChangeComponent } from '../influence-change/influence-change.component';
+import {
+  InfluenceChartDialogComponent,
+  InfluenceChartDialogData,
+} from '../influence-chart-dialog/influence-chart-dialog.component';
+import { InfluenceSparklineComponent } from '../influence-sparkline/influence-sparkline.component';
 import { LoadingTerminalComponent } from '../loading-terminal/loading-terminal.component';
 import {
   PriorityWatchlistDialogComponent,
@@ -72,6 +78,9 @@ type ArchitectFilterMode = 'all' | 'none' | 'name';
 /** The Faction quick filter's modes: everyone, only Canonn-affiliated systems, or one named faction. */
 type FactionFilterMode = 'all' | 'canonn' | 'name';
 
+/** Columns whose first click sorts the largest values first. */
+const MOST_FIRST_COLUMNS: ReadonlySet<SortColumn> = new Set<SortColumn>(['priority', 'canonnChange', 'cdsrChange']);
+
 /** Page sizes the "Page size" quick filter offers. */
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100] as const;
 
@@ -107,6 +116,8 @@ function toAnchorPoint(system: TypeaheadSystem): AnchorPoint {
     MatSelectModule,
     FaIconComponent,
     CanonnLogoComponent,
+    InfluenceChangeComponent,
+    InfluenceSparklineComponent,
     LoadingTerminalComponent,
   ],
   templateUrl: './bgs-table.component.html',
@@ -546,15 +557,16 @@ export class BgsTableComponent implements OnDestroy {
 
   /**
    * Sorts the whole table by the given column, toggling direction on a repeat click. A fresh
-   * click defaults to ascending, except Priority — there "first click" should read as
-   * "highest priority first", not the numerically-smallest score first.
+   * click defaults to ascending, except where "first click" should read as "most first": Priority
+   * (highest first, not the numerically-smallest score) and the influence changes (biggest gain
+   * first — a repeat click then brings the biggest losses to the top).
    */
   protected sortByColumn(column: SortColumn): void {
     if (this.mode() === 'column' && this.sortColumn() === column) {
       this.sortDirection.update(d => (d === 'asc' ? 'desc' : 'asc'));
     } else {
       this.sortColumn.set(column);
-      this.sortDirection.set(column === 'priority' ? 'desc' : 'asc');
+      this.sortDirection.set(MOST_FIRST_COLUMNS.has(column) ? 'desc' : 'asc');
       this.mode.set('column');
     }
     this.pageIndex.set(0);
@@ -618,6 +630,22 @@ export class BgsTableComponent implements OnDestroy {
       });
   }
 
+  /** Opens the influence history chart for a system, from one of its sparklines; `faction` is the line drawn heavier. */
+  protected openInfluenceChart(row: BgsRow, faction: string): void {
+    const data: InfluenceChartDialogData = {
+      systemName: row.systemName,
+      systemAddress: row.systemAddress,
+      averages: row.influenceAverages,
+      highlight: faction,
+    };
+    this.dialog.open(InfluenceChartDialogComponent, {
+      data,
+      autoFocus: 'first-tabbable',
+      restoreFocus: true,
+      maxWidth: 'min(900px, 94vw)',
+    });
+  }
+
   /** Hover/aria text for a row's info button. */
   protected infoButtonTitle(row: BgsRow): string {
     return `System Info for ${row.systemName}`;
@@ -630,8 +658,8 @@ export class BgsTableComponent implements OnDestroy {
       data,
       autoFocus: 'first-tabbable',
       restoreFocus: true,
-      // Matches .bgs-container's own max-width (minus its side padding) — the dialog should
-      // never read as wider than the table it's explaining a row of.
+      // Wide enough for its faction and station tables, but not stretched across a full-width
+      // page, where the rows would be too far from their labels to read.
       maxWidth: 'min(1168px, 90vw)',
     });
   }

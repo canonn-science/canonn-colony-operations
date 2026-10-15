@@ -1,0 +1,107 @@
+<h2 mat-dialog-title class="chart-title">
+  {{ systemName }}
+  <span class="chart-subtitle">Influence over the last 30 days</span>
+</h2>
+
+<mat-dialog-content>
+  @switch (status()) {
+    @case ('loading') {
+      <p class="chart-note" role="status">Loading history…</p>
+    }
+    @case ('error') {
+      <div class="chart-note chart-note--error" role="alert">
+        <p>Couldn't load the history: {{ errorMessage() }}</p>
+        <button mat-stroked-button type="button" (click)="retry()">Retry</button>
+      </div>
+    }
+    @case ('empty') {
+      <p class="chart-note">The tracker has no history for this system yet.</p>
+    }
+    @default {
+      <section class="chart-legend" aria-label="Factions. Select one to show or hide it.">
+        @for (line of lines(); track line.key) {
+          <button
+            type="button"
+            class="legend-item"
+            [class.legend-item--off]="!line.visible"
+            [attr.aria-pressed]="line.visible"
+            (click)="toggle(line.key)"
+          >
+            <span
+              class="legend-swatch"
+              [class.legend-swatch--dashed]="line.dashed"
+              [style.border-top-color]="line.colour"
+            ></span>
+            <span class="legend-label">{{ line.label }}</span>
+            <span class="legend-value">{{ line.latest }}</span>
+          </button>
+        }
+      </section>
+
+      <div class="chart-wrap">
+        <svg
+          class="chart"
+          [attr.viewBox]="'0 0 ' + width + ' ' + height"
+          role="img"
+          tabindex="0"
+          [attr.aria-label]="'Influence history of ' + systemName + '. Use the left and right arrow keys to step through the snapshots.'"
+          (pointermove)="onPointerMove($event)"
+          (pointerleave)="onPointerLeave()"
+          (keydown)="onKeyDown($event)"
+        >
+          @for (tick of yTicks(); track tick.value) {
+            <line class="grid" [attr.x1]="plot.left" [attr.x2]="plot.right" [attr.y1]="tick.y" [attr.y2]="tick.y" />
+            <text class="axis-label" [attr.x]="plot.left - 8" [attr.y]="tick.y" text-anchor="end" dominant-baseline="middle">
+              {{ tick.value }}%
+            </text>
+          }
+          <line class="baseline" [attr.x1]="plot.left" [attr.x2]="plot.right" [attr.y1]="plot.bottom" [attr.y2]="plot.bottom" />
+          @for (tick of xTicks(); track tick.time) {
+            <text class="axis-label" [attr.x]="tick.x" [attr.y]="plot.bottom + 18" text-anchor="middle">{{ tick.label }}</text>
+          }
+
+          @for (line of lines(); track line.key) {
+            @if (line.visible) {
+              @if (line.path) {
+                <polyline
+                  class="series"
+                  [class.series--dashed]="line.dashed"
+                  [class.series--heavy]="line.heavy"
+                  [attr.points]="line.path"
+                  [style.stroke]="line.colour"
+                />
+              }
+              @if (line.dots.length === 1) {
+                <circle class="reading" [attr.cx]="line.dots[0].x" [attr.cy]="line.dots[0].y" r="4" [style.fill]="line.colour" />
+              }
+            }
+          }
+
+          @if (tooltip(); as tip) {
+            <line class="guide" [attr.x1]="tip.x" [attr.x2]="tip.x" [attr.y1]="plot.top" [attr.y2]="plot.bottom" />
+            @for (dot of tip.dots; track $index) {
+              <circle class="reading" [attr.cx]="dot.x" [attr.cy]="dot.y" r="4" [style.fill]="dot.colour" />
+            }
+          }
+        </svg>
+
+        @if (tooltip(); as tip) {
+          <div class="chart-tooltip" [class.chart-tooltip--left]="tip.percent > 55" [style.left.%]="tip.percent">
+            <div class="tooltip-when">{{ tip.when }}</div>
+            @for (row of tip.rows; track row.label) {
+              <div class="tooltip-row">
+                <span class="tooltip-swatch" [style.background-color]="row.colour"></span>
+                <span class="tooltip-label">{{ row.label }}</span>
+                <span class="tooltip-value">{{ row.value }}</span>
+              </div>
+            }
+          </div>
+        }
+      </div>
+    }
+  }
+</mat-dialog-content>
+
+<mat-dialog-actions align="end">
+  <button mat-flat-button color="primary" type="button" mat-dialog-close>Close</button>
+</mat-dialog-actions>

@@ -18,6 +18,8 @@ import { currentPriority } from './priority';
 export type OrderColumn =
   | 'canonn'
   | 'cdsr'
+  | 'canonnChange'
+  | 'cdsrChange'
   | 'controllingFaction'
   | 'architect'
   | 'preferredFaction'
@@ -61,6 +63,11 @@ function columnValue(row: BgsRow, column: OrderColumn): SortValue {
       return row.canonnInfluence;
     case 'cdsr':
       return row.cdsrInfluence;
+    case 'canonnChange':
+      // The signed points gained or lost, so ascending runs from the biggest loss to the biggest gain.
+      return row.canonnChange?.points ?? null;
+    case 'cdsrChange':
+      return row.cdsrChange?.points ?? null;
     case 'controllingFaction':
       return casefolded(row.controllingFaction);
     case 'architect':

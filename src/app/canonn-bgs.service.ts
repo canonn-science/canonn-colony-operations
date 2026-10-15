@@ -7,6 +7,8 @@ import {
 } from './data/architect-form';
 import { ArchitectInfo, ArchitectRegistryRow } from './data/architect-registry';
 import { isHomeSystem } from './data/home-systems';
+import { ApiTrend, InfluenceChange, influenceChangeFrom } from './data/influence-change';
+import { HistoryRow } from './data/influence-history';
 import { logger } from './data/logger';
 import {
   BgsConfig,
@@ -24,10 +26,10 @@ import { PriorityWatchlistEntry } from './data/priority-watchlist';
 const QUERY_BASE = 'https://us-central1-canonn-api-236217.cloudfunctions.net/query';
 /**
  * The BGS tracker's read API. Asked for `view=all`, it sends every system's summary in one
- * gzipped response, together with the `config` the priority score needs; `slim=1` leaves out
- * the sparkline-and-history fields this table never draws.
+ * gzipped response, together with the `config` the priority score needs. (Not `slim=1`: that
+ * leaves out the `sparkline` the influence columns draw, for a saving of a few percent.)
  */
-const BGS_SYSTEMS_URL = `${QUERY_BASE}/bgs/systems?view=all&slim=1`;
+const BGS_SYSTEMS_URL = `${QUERY_BASE}/bgs/systems?view=all`;
 const TYPEAHEAD_ENDPOINT = `${QUERY_BASE}/typeahead`;
 
 /** Default per-request timeout for remote API calls (ms). */
@@ -177,6 +179,8 @@ interface MinorFactionPresence {
 /** One system's summary from `/bgs/systems`; only the fields this app reads are listed. */
 interface BgsSystemRecord {
   name: string;
+  /** The system's id64, as a string — it is bigger than JavaScript can hold exactly as a number. */
+  system_address?: string | null;
   controlling_faction: string | null;
   /** Every faction in the newest snapshot, highest influence first. Empty for a system the tracker has no snapshot of. */
   minor_faction_presences?: ApiFactionPresence[] | null;
@@ -188,7 +192,11 @@ interface BgsSystemRecord {
   architect?: ApiArchitect | null;
   bgs_override?: ApiOverride | null;
   /** Each tracked faction's influence history — an input to the priority score. */
-  trend?: Record<string, PriorityTrend> | null;
+  trend?: Record<string, PriorityTrend & ApiTrend> | null;
+  /** Each tracked faction's influence over the last weeks as 0-1 fractions, oldest first. */
+  sparkline?: Record<string, number[]> | null;
+  /** Each tracked faction's average influence before the latest day, as a 0-1 fraction; null where it has none. */
+  avg_influence?: Record<string, number | null> | null;
   /** The tracked factions' active and pending states — an input to the priority score. */
   states?: PriorityStates[] | null;
   /** The system's open conflicts — an input to the priority score. */
@@ -294,6 +302,8 @@ export type FactionStateStatus = 'active' | 'pending' | null;
 /** One row of the rendered table. */
 export interface BgsRow {
   systemName: string;
+  /** The system's id64 as a string (never a number: it exceeds JavaScript's safe integers); '' if the API sent none. */
+  systemAddress: string;
   controllingFaction: string | null;
   /** Canonn faction influence, as a 0-100 percentage; null if Canonn has no presence in the system. */
   canonnInfluence: number | null;
@@ -316,6 +326,16 @@ export interface BgsRow {
   stationCount: number | null;
   /** Every minor faction present in the system, sorted by influence descending (highest first). */
   factions: FactionInfluence[];
+  /** Canonn's influence over the last weeks as percentages, oldest first; empty if the tracker has no history of it. */
+  canonnHistory: number[];
+  /** Canonn Deep Space Research's influence over the last weeks as percentages, oldest first. */
+  cdsrHistory: number[];
+  /** Each tracked faction's long-run average influence as a 0-1 fraction (null where unknown) — the history chart's dashed lines. */
+  influenceAverages: Record<string, number | null>;
+  /** How Canonn's influence has moved lately (the arrow and points beside its percentage); null with too little history. */
+  canonnChange: InfluenceChange | null;
+  /** How Canonn Deep Space Research's influence has moved lately; null with too little history. */
+  cdsrChange: InfluenceChange | null;
   /** The same factions with allegiance, government and active states, for the system info dialog. */
   factionDetails: FactionDetail[];
   /** The system's stations (the API's canonn_assets), for the system info dialog. */
@@ -720,6 +740,11 @@ function architectFromApi(architect: ApiArchitect | null | undefined): Architect
   };
 }
 
+/** A tracked faction's influence history out of a summary's `sparkline`, as percentages (empty if it has none). */
+function historyPercent(sparkline: Record<string, number[]> | null | undefined, faction: string): number[] {
+  return (sparkline?.[faction] ?? []).map(value => value * 100);
+}
+
 /** An answer as a registry row. */
 function toRegistryRow(answers: AssignmentAnswers): ArchitectRegistryRow {
   return {
@@ -790,6 +815,17 @@ export class CanonnBgsService {
       fetching.then(done, done);
     }
     return this.inFlight;
+  }
+
+  /**
+   * One system's influence history — every faction's reading at each snapshot the tracker has
+   * kept (30 days), with the time of each — for the history chart. Fetched on demand: the list
+   * carries only the tracked factions' values, with no times and none of the other factions.
+   */
+  async getInfluenceHistory(systemAddress: string): Promise<HistoryRow[]> {
+    const url = `${QUERY_BASE}/bgs/systems/${encodeURIComponent(systemAddress)}/history`;
+    const history = await this.resilientGet<{ data?: HistoryRow[] }>(url);
+    return history.data ?? [];
   }
 
   /** Name-suggestion + coordinate lookup, for the "sort by distance from system" search box. */
@@ -997,9 +1033,15 @@ export class CanonnBgsService {
     };
     return {
       systemName: record.name,
+      systemAddress: record.system_address ?? '',
+      influenceAverages: record.avg_influence ?? {},
       controllingFaction: record.controlling_faction ?? null,
       canonnInfluence,
       cdsrInfluence,
+      canonnHistory: historyPercent(record.sparkline, CANONN_FACTION),
+      cdsrHistory: historyPercent(record.sparkline, CDSR_FACTION),
+      canonnChange: influenceChangeFrom(record.trend?.[CANONN_FACTION]),
+      cdsrChange: influenceChangeFrom(record.trend?.[CDSR_FACTION]),
       // Spansh's colonisation flags are unreliable, so any system without a registered
       // architect is assignable — never blocked behind a "Not a colony" indicator. A
       // registry row that itself answers "not a colony" is different: that's a confirmed
