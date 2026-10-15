@@ -89,6 +89,15 @@
     </div>
 
     <div class="bgs-filter-group">
+      <button
+        type="button"
+        class="bgs-filter-chip"
+        [class.bgs-filter-chip--active]="canonnStationOnly()"
+        (click)="toggleCanonnStation()"
+      >Canonn Station</button>
+    </div>
+
+    <div class="bgs-filter-group">
       <span class="bgs-filter-label">Architect</span>
       <button
         type="button"

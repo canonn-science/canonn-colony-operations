@@ -276,6 +276,7 @@ describe('BgsTableComponent over the whole list', () => {
         row('War', { warState: 'active', architect: 'Cmdr A' }),
         row('Election', { electionState: 'pending' }),
         row('Mine', { architect: 'Cmdr Example', factions: [{ name: 'Canonn', influencePercent: 40 }] }),
+        row('Outpost', { hasCanonnStation: true }),
       ]);
     });
 
@@ -286,19 +287,27 @@ describe('BgsTableComponent over the whole list', () => {
       expect(total()).toBe(2);
 
       component['toggleWarElection']();
-      expect(total()).toBe(4);
+      expect(total()).toBe(5);
+    });
+
+    it('narrows to systems with a Canonn-named station', () => {
+      component['toggleCanonnStation']();
+      expect(visibleNames()).toEqual(['Outpost']);
+
+      component['toggleCanonnStation']();
+      expect(total()).toBe(5);
     });
 
     it('narrows to systems with no architect, or to a named one', () => {
       component['setArchitectFilterMode']('none');
-      expect(visibleNames()).toEqual(['Election', 'Quiet']);
+      expect(visibleNames()).toEqual(['Election', 'Outpost', 'Quiet']);
 
       component['architectFilterControl'].setValue('cmdr example');
       component['applyArchitectFilterName']();
       expect(visibleNames()).toEqual(['Mine']);
 
       component['setArchitectFilterMode']('all');
-      expect(total()).toBe(4);
+      expect(total()).toBe(5);
     });
 
     it('narrows to Canonn-affiliated systems, or to a named faction', () => {

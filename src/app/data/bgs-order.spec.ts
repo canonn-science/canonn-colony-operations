@@ -181,6 +181,7 @@ describe('filterRows', () => {
     row('other faction', { factions: [{ name: 'Some Faction', influencePercent: 50 }] }),
     row('stale', { updatedAt: '2026-08-01T00:00:00Z' }),
     row('fresh', { updatedAt: '2026-08-07T11:00:00Z' }),
+    row('canonn station', { hasCanonnStation: true }),
   ];
 
   it('passes every row through when no filter is on', () => {
@@ -206,6 +207,10 @@ describe('filterRows', () => {
 
   it('lets no_architect win over a named architect', () => {
     expect(names(filterRows(rows, { noArchitect: true, architect: 'Cmdr Example' }, NOW))).not.toContain('mine');
+  });
+
+  it('keeps systems with a Canonn-named station', () => {
+    expect(names(filterRows(rows, { canonnStation: true }, NOW))).toEqual(['canonn station']);
   });
 
   it('keeps a system where the faction is present or is the preferred faction, matching any of several', () => {

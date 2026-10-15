@@ -194,6 +194,8 @@ export class BgsTableComponent implements OnDestroy {
   protected readonly warElectionOnly = signal(false);
   /** FR-5: "needs recon" pairs naturally with the distance sort — stale systems near me. */
   protected readonly needsReconOnly = signal(false);
+  /** Only systems with a station that has "canonn" in its name. */
+  protected readonly canonnStationOnly = signal(false);
   protected readonly architectFilterMode = signal<ArchitectFilterMode>('all');
   private readonly architectFilterName = signal('');
   protected readonly factionFilterMode = signal<FactionFilterMode>('all');
@@ -232,6 +234,9 @@ export class BgsTableComponent implements OnDestroy {
     }
     if (this.needsReconOnly()) {
       filters.needsRecon = true;
+    }
+    if (this.canonnStationOnly()) {
+      filters.canonnStation = true;
     }
     switch (this.architectFilterMode()) {
       case 'none':
@@ -506,6 +511,11 @@ export class BgsTableComponent implements OnDestroy {
 
   protected toggleNeedsRecon(): void {
     this.needsReconOnly.update(active => !active);
+    this.pageIndex.set(0);
+  }
+
+  protected toggleCanonnStation(): void {
+    this.canonnStationOnly.update(active => !active);
     this.pageIndex.set(0);
   }
 

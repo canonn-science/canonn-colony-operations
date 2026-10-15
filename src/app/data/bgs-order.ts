@@ -42,6 +42,8 @@ export interface RowFilters {
   warElection?: boolean;
   /** The reading is old enough that the system needs flying through again. */
   needsRecon?: boolean;
+  /** The system has a station with "canonn" in its name. */
+  canonnStation?: boolean;
   /** Systems with no architect on record. */
   noArchitect?: boolean;
   /** Systems whose architect is this name (ignored alongside {@link noArchitect}). */
@@ -173,6 +175,9 @@ export function filterRows(rows: readonly BgsRow[], filters: RowFilters, nowMs: 
       return false;
     }
     if (filters.needsRecon && !currentPriority(row, nowMs).needsRecon) {
+      return false;
+    }
+    if (filters.canonnStation && !row.hasCanonnStation) {
       return false;
     }
     if (filters.noArchitect) {
