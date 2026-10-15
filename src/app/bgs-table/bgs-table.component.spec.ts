@@ -456,4 +456,87 @@ describe('BgsTableComponent over the whole list', () => {
       expect(component['exportError']()).toBe('Failed to export data. Please try again.');
     });
   });
+
+  describe('share link', () => {
+    const originalHref = window.location.href;
+
+    afterEach(() => {
+      history.pushState({}, '', originalHref);
+    });
+
+    it('copies a URL carrying every active quick filter and the current sort', async () => {
+      history.pushState({}, '', '/');
+      await createWith([row('Quiet'), row('War', { warState: 'active', architect: 'Cmdr A' })]);
+
+      component['toggleWarElection']();
+      component['setPageSize'](50);
+      component['sortByColumn']('architect');
+
+      const writeText = vi.fn().mockResolvedValue(undefined);
+      Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+
+      await component['copyShareLink']();
+
+      expect(writeText).toHaveBeenCalledWith(
+        `${window.location.origin}${window.location.pathname}?pageSize=50&warElection=1&sort=architect&dir=asc`,
+      );
+      expect(component['linkCopied']()).toBe(true);
+    });
+
+    it('omits every quick filter left at its default, keeping only the (always-active) sort', async () => {
+      history.pushState({}, '', '/');
+      await createWith([row('Quiet')]);
+
+      const writeText = vi.fn().mockResolvedValue(undefined);
+      Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+
+      await component['copyShareLink']();
+
+      expect(writeText).toHaveBeenCalledWith(
+        `${window.location.origin}${window.location.pathname}?sort=priority&dir=desc`,
+      );
+    });
+
+    it('restores the quick filters, sort and page from the URL on load', async () => {
+      history.pushState(
+        {},
+        '',
+        '/?pageSize=50&warElection=1&architect=Cmdr%20A&preference=canonn&sort=architect&dir=desc&page=2',
+      );
+      await createWith([
+        row('Quiet'),
+        row('War', { warState: 'active', architect: 'Cmdr A' }),
+        row('Mine', { architect: 'Cmdr A' }),
+      ]);
+
+      expect(pageSize()).toBe(50);
+      expect(component['warElectionOnly']()).toBe(true);
+      expect(component['architectFilterMode']()).toBe('name');
+      expect(component['architectFilterControl'].value).toBe('Cmdr A');
+      expect(component['preferenceFilterMode']()).toBe('canonn');
+      expect(component['sortColumn']()).toBe('architect');
+      expect(component['sortDirection']()).toBe('desc');
+      expect(component['pageIndex']()).toBe(1);
+    });
+
+    it('resolves a `near` link by searching for the named system and sorting by distance', async () => {
+      service.typeahead.mockResolvedValue({
+        min_max: [{ name: 'Varati Ring', x: 5, y: 0, z: 0 }],
+        values: ['Varati Ring'],
+      });
+      history.pushState({}, '', '/?near=Varati+Ring');
+      await createWith([row('Close', { x: 4 }), row('Far', { x: 100 })]);
+      await fixture.whenStable();
+
+      expect(component['mode']()).toBe('distance');
+      expect(visibleNames()).toEqual(['Close', 'Far']);
+    });
+
+    it('ignores an unrecognised sort column rather than throwing', async () => {
+      history.pushState({}, '', '/?sort=not-a-real-column');
+
+      await expect(createWith([row('Quiet')])).resolves.not.toThrow();
+      expect(component['sortColumn']()).toBe('priority');
+    });
+  });
 });

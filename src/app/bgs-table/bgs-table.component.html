@@ -6,16 +6,27 @@
       <p>Controlling factions, Canonn / Canonn Deep Space Research influence, and system architects.</p>
     </div>
     <div class="bgs-header-actions">
-      <button
-        mat-stroked-button
-        type="button"
-        [matMenuTriggerFor]="exportMenu"
-        [disabled]="loading()"
-        aria-label="Export the data"
-      >
-        <fa-icon [icon]="faDownload" aria-hidden="true"></fa-icon>
-        Export
-      </button>
+      <div class="bgs-header-actions-row">
+        <button
+          mat-icon-button
+          type="button"
+          (click)="copyShareLink()"
+          [title]="linkCopied() ? 'Link copied!' : 'Copy a link with the current filters and sort'"
+          [attr.aria-label]="linkCopied() ? 'Link copied' : 'Copy a link with the current filters and sort'"
+        >
+          <fa-icon [icon]="linkCopied() ? faCheck : faLink" aria-hidden="true"></fa-icon>
+        </button>
+        <button
+          mat-stroked-button
+          type="button"
+          [matMenuTriggerFor]="exportMenu"
+          [disabled]="loading()"
+          aria-label="Export the data"
+        >
+          <fa-icon [icon]="faDownload" aria-hidden="true"></fa-icon>
+          Export
+        </button>
+      </div>
       <mat-menu #exportMenu="matMenu">
         <button mat-menu-item type="button" (click)="exportJson()">Export as JSON</button>
         <button mat-menu-item type="button" (click)="exportCsv()">Export as CSV</button>

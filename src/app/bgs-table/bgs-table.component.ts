@@ -17,6 +17,7 @@ import {
   faCircleInfo,
   faCopy,
   faDownload,
+  faLink,
   faMagnifyingGlass,
 } from '@fortawesome/free-solid-svg-icons';
 import {
@@ -91,6 +92,20 @@ const PREFERENCE_FILTER_OPTIONS: ReadonlyArray<{ value: PreferenceFilterMode; la
 /** Columns whose first click sorts the largest values first. */
 const MOST_FIRST_COLUMNS: ReadonlySet<SortColumn> = new Set<SortColumn>(['priority', 'canonnChange', 'cdsrChange']);
 
+/** Every column that can be named in a shared link's `sort` parameter. */
+const SORT_COLUMNS: ReadonlySet<SortColumn> = new Set<SortColumn>([
+  'canonn',
+  'cdsr',
+  'canonnChange',
+  'cdsrChange',
+  'controllingFaction',
+  'architect',
+  'preferredFaction',
+  'factionCount',
+  'freshness',
+  'priority',
+]);
+
 /** Page sizes the "Page size" quick filter offers. */
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100] as const;
 
@@ -144,6 +159,7 @@ export class BgsTableComponent implements OnDestroy {
   protected readonly faCopy = faCopy;
   protected readonly faCheck = faCheck;
   protected readonly faDownload = faDownload;
+  protected readonly faLink = faLink;
   protected readonly faCircleInfo = faCircleInfo;
   /** Both Canonn-affiliated factions — their bars are highlighted orange in the Factions chart. */
   protected readonly canonnFactionNames: ReadonlySet<string> = new Set([CANONN_FACTION, CDSR_FACTION]);
@@ -168,6 +184,9 @@ export class BgsTableComponent implements OnDestroy {
   /** The system name last copied to the clipboard, shown as a brief checkmark on its row. */
   protected readonly copiedSystem = signal<string | null>(null);
   private copiedResetHandle: ReturnType<typeof setTimeout> | undefined;
+  /** Briefly true after the share-link button copies a URL, to swap its icon for a checkmark. */
+  protected readonly linkCopied = signal(false);
+  private linkCopiedResetHandle: ReturnType<typeof setTimeout> | undefined;
   protected readonly errorMessage = signal<string | null>(null);
   protected readonly exportError = signal<string | null>(null);
 
@@ -359,6 +378,7 @@ export class BgsTableComponent implements OnDestroy {
     void this.loadSystems();
     void this.loadArchitectFilterNames();
     this.architectFilterControl.setValue(readYourName());
+    this.applyFiltersFromUrl();
 
     this.nowTimerHandle = setInterval(() => {
       this.now.set(Date.now());
@@ -390,6 +410,7 @@ export class BgsTableComponent implements OnDestroy {
       clearTimeout(this.suggestionDebounceTimer);
     }
     clearTimeout(this.copiedResetHandle);
+    clearTimeout(this.linkCopiedResetHandle);
     clearInterval(this.nowTimerHandle);
     window.removeEventListener('focus', this.onWindowFocus);
   }
@@ -446,6 +467,147 @@ export class BgsTableComponent implements OnDestroy {
     this.copiedSystem.set(systemName);
     clearTimeout(this.copiedResetHandle);
     this.copiedResetHandle = setTimeout(() => this.copiedSystem.set(null), 1500);
+  }
+
+  /** Copies a URL carrying every active quick filter and the current sort, and shows a brief checkmark on the button. */
+  protected async copyShareLink(): Promise<void> {
+    const query = this.buildShareQueryParams().toString();
+    const url = `${window.location.origin}${window.location.pathname}${query ? '?' + query : ''}`;
+    try {
+      await navigator.clipboard.writeText(url);
+    } catch {
+      return;
+    }
+    this.linkCopied.set(true);
+    clearTimeout(this.linkCopiedResetHandle);
+    this.linkCopiedResetHandle = setTimeout(() => this.linkCopied.set(false), 1500);
+  }
+
+  /** The current quick filters and sort/distance-search state, as query params a loaded page can read back via {@link applyFiltersFromUrl}. A filter/sort left at its default is simply omitted. */
+  private buildShareQueryParams(): URLSearchParams {
+    const params = new URLSearchParams();
+
+    if (this.pageSize() !== PAGE_SIZE_OPTIONS[0]) {
+      params.set('pageSize', String(this.pageSize()));
+    }
+    if (this.pageIndex() > 0) {
+      params.set('page', String(this.pageIndex() + 1));
+    }
+    if (this.warElectionOnly()) {
+      params.set('warElection', '1');
+    }
+    if (this.needsReconOnly()) {
+      params.set('needsRecon', '1');
+    }
+    if (this.canonnStationOnly()) {
+      params.set('canonnStation', '1');
+    }
+    switch (this.architectFilterMode()) {
+      case 'none':
+        params.set('architect', 'none');
+        break;
+      case 'name':
+        params.set('architect', this.architectFilterName());
+        break;
+    }
+    switch (this.factionFilterMode()) {
+      case 'canonn':
+        params.set('faction', 'canonn');
+        break;
+      case 'name':
+        params.set('faction', this.factionFilterName());
+        break;
+    }
+    if (this.preferenceFilterMode() !== 'all') {
+      params.set('preference', this.preferenceFilterMode());
+    }
+
+    switch (this.mode()) {
+      case 'distance': {
+        const anchor = this.selectedAnchor();
+        if (anchor) {
+          params.set('near', anchor.systemName);
+        }
+        break;
+      }
+      case 'column': {
+        const column = this.sortColumn();
+        if (column) {
+          params.set('sort', column);
+          params.set('dir', this.sortDirection());
+        }
+        break;
+      }
+    }
+
+    return params;
+  }
+
+  /**
+   * Applies the quick filters and sort/distance-search a shared link's query params carry —
+   * the inverse of {@link buildShareQueryParams}. Run once at startup; an unrecognised or
+   * malformed value is simply ignored, leaving that filter at its default.
+   */
+  private applyFiltersFromUrl(): void {
+    if (!window.location.search) {
+      return;
+    }
+    const params = new URLSearchParams(window.location.search);
+
+    const pageSizeParam = Number(params.get('pageSize'));
+    if ((PAGE_SIZE_OPTIONS as readonly number[]).includes(pageSizeParam)) {
+      this.pageSize.set(pageSizeParam);
+    }
+
+    if (params.get('warElection') === '1') {
+      this.warElectionOnly.set(true);
+    }
+    if (params.get('needsRecon') === '1') {
+      this.needsReconOnly.set(true);
+    }
+    if (params.get('canonnStation') === '1') {
+      this.canonnStationOnly.set(true);
+    }
+
+    const architect = params.get('architect');
+    if (architect === 'none') {
+      this.architectFilterMode.set('none');
+    } else if (architect) {
+      this.architectFilterMode.set('name');
+      this.architectFilterName.set(architect);
+      this.architectFilterControl.setValue(architect, { emitEvent: false });
+      this.architectFilterQuery.set(architect);
+    }
+
+    const faction = params.get('faction');
+    if (faction === 'canonn') {
+      this.factionFilterMode.set('canonn');
+    } else if (faction) {
+      this.factionFilterMode.set('name');
+      this.factionFilterName.set(faction);
+      this.factionFilterControl.setValue(faction, { emitEvent: false });
+      this.factionFilterQuery.set(faction);
+    }
+
+    const preference = params.get('preference');
+    if (preference === 'any-canonn' || preference === 'canonn' || preference === 'cdsr') {
+      this.preferenceFilterMode.set(preference);
+    }
+
+    const near = params.get('near');
+    const sortColumnParam = params.get('sort');
+    if (near) {
+      void this.searchBySystemName(near);
+    } else if (sortColumnParam && SORT_COLUMNS.has(sortColumnParam as SortColumn)) {
+      this.sortColumn.set(sortColumnParam as SortColumn);
+      this.sortDirection.set(params.get('dir') === 'desc' ? 'desc' : 'asc');
+      this.mode.set('column');
+    }
+
+    const page = Number(params.get('page'));
+    if (Number.isInteger(page) && page > 1) {
+      this.pageIndex.set(page - 1);
+    }
   }
 
   /** Exports every row matching the current quick filters (regardless of page), in the current order, as a JSON file. */
