@@ -1,0 +1,215 @@
+<div class="cc-page">
+  <a routerLink="/" class="cc-back">&larr; Back to the table</a>
+
+  <header class="cc-header">
+    <div class="cc-eyebrow">Canonn colony operations · live from the BGS API</div>
+    <h1>Canonn Colony Census</h1>
+    <p class="cc-lede">
+      Who is building in Canonn space, what they are building, how many people live there, and how current the
+      picture is — computed on the fly from the tracker's live feed, the same one the table reads.
+      For the full interactive version with a rival network, a faction map and a population scatter, see the
+      <a href="https://claude.ai/artifact/78mVX2Zga9jJLxiNVUsCKg" target="_blank" rel="noopener">Charts</a>
+      snapshot, or
+      <a href="https://claude.ai/artifact/AsEeQMtVSGob8erkzyn4Q3" target="_blank" rel="noopener">More</a>
+      on the Faction Atlas.
+    </p>
+
+    @if (stats(); as s) {
+      <div class="cc-stats">
+        <div class="cc-stat">
+          <b>{{ fmt(s.colonies) }}</b>
+          <span>systems with an architect</span>
+          <small>of {{ fmt(s.totalSystems) }} in the live feed</small>
+        </div>
+        <div class="cc-stat">
+          <b>{{ fmt(s.architects.length) }}</b>
+          <span>architects</span>
+          <small>{{ fmt(singleSystemArchitects()) }} have built one system</small>
+        </div>
+        <div class="cc-stat">
+          <b>{{ fmt(s.depotCount) }}</b>
+          <span>construction depots</span>
+          <small>{{ pct(s.depotCount, s.totalStations) }} of all listed stations</small>
+        </div>
+        <div class="cc-stat">
+          <b>{{ s.medianAgeDays !== null ? s.medianAgeDays + ' days' : '—' }}</b>
+          <span>median time since update</span>
+          <small>half the systems are older than this</small>
+        </div>
+      </div>
+      <p class="cc-asof">
+        Fetched just now from the live BGS feed ({{ fmt(rowCount()) }} systems){{ generatedAt() ? ' — server snapshot generated ' + generatedAt() + ' UTC' : '' }}.
+        <button type="button" class="cc-refresh" (click)="load()">Refresh</button>
+      </p>
+    }
+  </header>
+
+  @switch (status()) {
+    @case ('loading') {
+      <app-loading-terminal [realLines]="loadLog()"></app-loading-terminal>
+    }
+    @case ('error') {
+      <p class="cc-error" role="alert">
+        {{ errorMessage() }}
+        <button type="button" (click)="load()">Try again</button>
+      </p>
+    }
+    @case ('ready') {
+      @if (stats(); as s) {
+        <section aria-labelledby="cc-foot-h">
+          <div class="cc-plate-head"><span class="cc-tag">Footprint</span><h2 id="cc-foot-h">Where Canonn and CDSR stand</h2></div>
+          @if (footprintCards(); as f) {
+            <div class="cc-foot-cards">
+              <div class="cc-fcard">
+                <div class="cc-who"><span class="cc-sw cc-s1"></span>Canonn</div>
+                <div class="cc-nums"><b>{{ fmt(f.canonnControl) }}</b><span>controlled of {{ fmt(f.canonnPresent) }} present</span></div>
+                <div class="cc-meter"><i [style.width]="pct(f.canonnControl, f.canonnPresent)" style="background: var(--cc-s1)"></i></div>
+              </div>
+              <div class="cc-fcard">
+                <div class="cc-who"><span class="cc-sw cc-s3"></span>Canonn Deep Space Research</div>
+                <div class="cc-nums"><b>{{ fmt(f.cdsrControl) }}</b><span>controlled of {{ fmt(f.cdsrPresent) }} present</span></div>
+                <div class="cc-meter"><i [style.width]="pct(f.cdsrControl, f.cdsrPresent)" style="background: var(--cc-s3)"></i></div>
+              </div>
+              <div class="cc-fcard cc-total">
+                <div class="cc-who">Combined, each system counted once</div>
+                <div class="cc-nums"><b>{{ fmt(f.unionControl) }}</b><span>controlled of {{ fmt(f.union) }} present</span></div>
+                <div class="cc-meter"><i [style.width]="pct(f.unionControl, f.union)" style="background: var(--cc-s1)"></i></div>
+                <p class="cc-sub">
+                  Both are present together in <b>{{ fmt(f.both) }}</b> systems, so the combined total is
+                  {{ fmt(f.canonnPresent) }} + {{ fmt(f.cdsrPresent) }} − {{ fmt(f.both) }} = <b>{{ fmt(f.union) }}</b>.
+                </p>
+              </div>
+            </div>
+          }
+        </section>
+
+        <section aria-labelledby="cc-arch-h">
+          <div class="cc-plate-head"><span class="cc-tag">Plate 1</span><h2 id="cc-arch-h">The architects</h2></div>
+          <p class="cc-note">
+            {{ fmt(s.architects.length) }} commanders have built the {{ fmt(s.colonies) }} colonies on record right now.
+          </p>
+          <div class="cc-plate">
+            <div class="cc-lolli" role="list" aria-label="Top architects by systems built">
+              @for (a of topArchitects(); track a.name) {
+                <div class="cc-lrow" role="listitem">
+                  <span class="cc-nm">{{ a.name }}</span>
+                  <span class="cc-tr"><span class="cc-stem" [style.width.%]="(a.count / maxArchitectCount()) * 100"></span></span>
+                  <span class="cc-v">{{ a.count }}</span>
+                </div>
+              }
+            </div>
+          </div>
+        </section>
+
+        <section aria-labelledby="cc-pref-h">
+          <div class="cc-plate-head"><span class="cc-tag">Plate 2</span><h2 id="cc-pref-h">Did the architect get the faction they asked for?</h2></div>
+          <p class="cc-note">
+            Of systems with a recorded architect preference, how often that faction ended up in control versus lost
+            to someone else.
+          </p>
+          <div class="cc-plate cc-stack-rows">
+            @for (p of s.preferred; track p.faction) {
+              <div class="cc-srow" [title]="p.faction + ': ' + p.got + ' hold, ' + p.miss + ' lost to another faction'">
+                <span class="cc-nm">{{ p.faction }}</span>
+                <span class="cc-tr" [style.width.%]="((p.got + p.miss) / maxPreferredTotal()) * 100">
+                  <span class="cc-seg cc-seg-a" [style.flex]="p.got"></span>
+                  <span class="cc-seg cc-seg-b" [style.flex]="p.miss"></span>
+                </span>
+                <span class="cc-v">{{ pct(p.got, p.got + p.miss) }}</span>
+              </div>
+            }
+          </div>
+        </section>
+
+        <section aria-labelledby="cc-station-h">
+          <div class="cc-plate-head"><span class="cc-tag">Plate 3</span><h2 id="cc-station-h">What's being built</h2></div>
+          <p class="cc-note">
+            {{ fmt(s.totalStations) }} stations are listed across these systems; {{ fmt(s.depotCount) }} of them
+            ({{ pct(s.depotCount, s.totalStations) }}) are still under construction.
+          </p>
+          <div class="cc-plate cc-bars">
+            @for (t of s.stations; track t.type) {
+              <div class="cc-bar" [title]="t.type + ': ' + fmt(t.count)">
+                <span class="cc-nm">{{ t.type }}</span>
+                <span class="cc-tr">
+                  <span class="cc-fl" [style.width.%]="(t.count / maxStationCount()) * 100" [style.background]="stationFamilyColor[t.family]"></span>
+                </span>
+                <span class="cc-v">{{ fmt(t.count) }}</span>
+              </div>
+            }
+          </div>
+        </section>
+
+        <section aria-labelledby="cc-inf-h">
+          <div class="cc-plate-head"><span class="cc-tag">Plate 4</span><h2 id="cc-inf-h">How strong is Canonn where it's present?</h2></div>
+          <p class="cc-note">Canonn's influence in every system where it has a presence, in 5-point bands.</p>
+          <div class="cc-plate cc-hist">
+            @for (bin of s.influenceBins; track bin.bucket) {
+              <div
+                class="cc-hbar"
+                [title]="bin.bucket + '–' + (bin.bucket + 5) + '%: ' + bin.canonnControls + ' Canonn-controlled, ' + bin.other + ' other'"
+              >
+                <div class="cc-hstack">
+                  <div class="cc-hseg" [style.height.%]="(bin.other / maxInfluenceBin()) * 100" style="background: var(--cc-s2)"></div>
+                  <div class="cc-hseg" [style.height.%]="(bin.canonnControls / maxInfluenceBin()) * 100" style="background: var(--cc-s1)"></div>
+                </div>
+                @if (bin.bucket % 20 === 0) {
+                  <span class="cc-hlabel">{{ bin.bucket }}%</span>
+                }
+              </div>
+            }
+          </div>
+          <div class="cc-legend">
+            <span><span class="cc-sw cc-s1"></span>Canonn controls</span>
+            <span><span class="cc-sw" style="background: var(--cc-s2)"></span>Another faction controls</span>
+          </div>
+        </section>
+
+        <section aria-labelledby="cc-fresh-h">
+          <div class="cc-plate-head"><span class="cc-tag">Plate 5</span><h2 id="cc-fresh-h">How fresh is the data?</h2></div>
+          <p class="cc-note">Time since the BGS tracker last saw each system — influence moves daily, so treat an old reading as a last-known position.</p>
+          <div class="cc-plate cc-hist cc-hist-wide">
+            @for (bin of s.freshnessBins; track bin.label) {
+              <div class="cc-hbar" [title]="bin.label + ': ' + fmt(bin.count)">
+                <div class="cc-hstack"><div class="cc-hseg" [style.height.%]="(bin.count / maxFreshnessBin()) * 100" style="background: var(--cc-s4)"></div></div>
+                <span class="cc-hlabel cc-hlabel-wrap">{{ bin.label }}</span>
+              </div>
+            }
+          </div>
+        </section>
+
+        <section aria-labelledby="cc-riv-h">
+          <div class="cc-plate-head"><span class="cc-tag">Rivals</span><h2 id="cc-riv-h">Who pushes back hardest</h2></div>
+          <p class="cc-note">
+            {{ fmt(s.openConflicts) }} systems have an open war or election right now involving Canonn or CDSR against
+            another faction. Below: the factions that out-influence both of us most often.
+          </p>
+          <div class="cc-plate cc-bars">
+            @for (r of s.rivals; track r.faction) {
+              <div class="cc-bar" [title]="r.faction + ': leads us in ' + r.leadCount + ' systems'">
+                <span class="cc-nm">{{ r.faction }}</span>
+                <span class="cc-tr"><span class="cc-fl" [style.width.%]="(r.leadCount / maxRivalCount()) * 100" style="background: var(--cc-s2)"></span></span>
+                <span class="cc-v">{{ r.leadCount }}</span>
+              </div>
+            }
+          </div>
+        </section>
+      }
+    }
+  }
+
+  <footer class="cc-footer">
+    <span>
+      Source: the Canonn BGS tracker's live <code>/bgs/systems</code> feed — {{ fmt(rowCount()) }} systems, fetched
+      when this page was opened. "Architect" is the commander recorded as building the system; "preferred faction" is
+      the faction they nominated.
+    </span>
+    <span>
+      For the full interactive charts (rival network, faction map, population scatter) see the
+      <a href="https://claude.ai/artifact/78mVX2Zga9jJLxiNVUsCKg" target="_blank" rel="noopener">Census</a>
+      and
+      <a href="https://claude.ai/artifact/AsEeQMtVSGob8erkzyn4Q3" target="_blank" rel="noopener">Faction Atlas</a>
+      snapshots.
+    </span>
+  </footer>
+</div>

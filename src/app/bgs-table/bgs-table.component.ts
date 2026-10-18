@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, HostListener, OnDestroy, computed, effect, inject, signal } from '@angular/core';
 import { DecimalPipe } from '@angular/common';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { RouterLink } from '@angular/router';
 import { FormControl, ReactiveFormsModule } from '@angular/forms';
 import { MatAutocompleteModule } from '@angular/material/autocomplete';
 import { MatButtonModule } from '@angular/material/button';
@@ -133,6 +134,7 @@ function toAnchorPoint(system: TypeaheadSystem): AnchorPoint {
   selector: 'app-bgs-table',
   imports: [
     DecimalPipe,
+    RouterLink,
     ReactiveFormsModule,
     MatAutocompleteModule,
     MatButtonModule,
