@@ -868,6 +868,12 @@ export class CanonnBgsService {
     return this.inFlight;
   }
 
+  /** Fetches a fresh list now, even though the held one is still young; overlapping callers still share one request. */
+  refreshSystems(): Promise<BgsSnapshot> {
+    this.loadedAt = 0;
+    return this.getSystems();
+  }
+
   /**
    * One system's influence history — every faction's reading at each snapshot the tracker has
    * kept (30 days), with the time of each — for the history chart. Fetched on demand: the list

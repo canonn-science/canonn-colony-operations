@@ -1,9 +1,9 @@
 import { Routes } from '@angular/router';
-import { BgsTableComponent } from './bgs-table/bgs-table.component';
+import { HomeComponent } from './home/home.component';
 
 export const routes: Routes = [
   {
     path: '**',
-    component: BgsTableComponent,
+    component: HomeComponent,
   },
 ];
