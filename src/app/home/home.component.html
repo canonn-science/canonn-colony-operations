@@ -1,0 +1,45 @@
+<header class="home-header">
+  <app-canonn-logo [animating]="loading()" class="home-logo"></app-canonn-logo>
+  <div class="home-title">
+    <h1>Canonn Colony Operations</h1>
+    <p>Controlling factions, Canonn / Canonn Deep Space Research influence, and system architects.</p>
+  </div>
+  <button
+    mat-icon-button
+    type="button"
+    class="home-link"
+    (click)="copyShareLink()"
+    [matTooltip]="linkCopied() ? 'Link copied!' : 'Copy a link to this tab'"
+    [attr.aria-label]="linkCopied() ? 'Link copied' : 'Copy a link to this tab'"
+  >
+    <fa-icon [icon]="linkCopied() ? faCheck : faLink" aria-hidden="true"></fa-icon>
+  </button>
+</header>
+
+<mat-tab-group
+  class="home-tabs"
+  animationDuration="0ms"
+  [mat-stretch-tabs]="false"
+  preserveContent
+  [selectedIndex]="0"
+  (selectedIndexChange)="selectTab($event)"
+  aria-label="Sections"
+>
+  @for (tab of tabOrder(); track tab) {
+    <mat-tab [label]="tabLabels[tab]">
+      <ng-template matTabContent>
+        @switch (tab) {
+          @case ('priorities') {
+            <app-bgs-table (loadingChange)="loading.set($event)"></app-bgs-table>
+          }
+          @case ('architects') {
+            <app-colony-census section="architects"></app-colony-census>
+          }
+          @case ('factions') {
+            <app-colony-census section="factions"></app-colony-census>
+          }
+        }
+      </ng-template>
+    </mat-tab>
+  }
+</mat-tab-group>

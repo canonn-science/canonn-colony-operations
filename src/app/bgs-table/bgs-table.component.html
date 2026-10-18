@@ -1,43 +1,4 @@
 <div class="bgs-container">
-  <div class="bgs-header">
-    <app-canonn-logo [animating]="loading()" class="bgs-logo"></app-canonn-logo>
-    <div class="bgs-title">
-      <h1>Canonn Colony Operations</h1>
-      <p>Controlling factions, Canonn / Canonn Deep Space Research influence, and system architects.</p>
-    </div>
-    <div class="bgs-header-actions">
-      <div class="bgs-header-actions-row">
-        <a mat-stroked-button routerLink="/census" aria-label="Open the Colony Census">Colony Census</a>
-        <button
-          mat-icon-button
-          type="button"
-          (click)="copyShareLink()"
-          [matTooltip]="linkCopied() ? 'Link copied!' : 'Copy a link with the current filters and sort'"
-          [attr.aria-label]="linkCopied() ? 'Link copied' : 'Copy a link with the current filters and sort'"
-        >
-          <fa-icon [icon]="linkCopied() ? faCheck : faLink" aria-hidden="true"></fa-icon>
-        </button>
-        <button
-          mat-stroked-button
-          type="button"
-          [matMenuTriggerFor]="exportMenu"
-          [disabled]="loading()"
-          aria-label="Export the data"
-        >
-          <fa-icon [icon]="faDownload" aria-hidden="true"></fa-icon>
-          Export
-        </button>
-      </div>
-      <mat-menu #exportMenu="matMenu">
-        <button mat-menu-item type="button" (click)="exportJson()">Export as JSON</button>
-        <button mat-menu-item type="button" (click)="exportCsv()">Export as CSV</button>
-      </mat-menu>
-      @if (exportError(); as err) {
-        <span class="bgs-export-error" role="alert" aria-live="assertive" aria-atomic="true">{{ err }}</span>
-      }
-    </div>
-  </div>
-
   <div class="bgs-search">
     <mat-form-field appearance="outline" class="bgs-search-field" subscriptSizing="dynamic">
       <mat-label>Sort by distance from system</mat-label>
@@ -68,6 +29,42 @@
     @if (searchError(); as err) {
       <span class="bgs-search-error">{{ err }}</span>
     }
+    <div class="bgs-actions">
+      <div class="bgs-refresh">
+        <button
+          mat-stroked-button
+          type="button"
+          (click)="refresh()"
+          [disabled]="loading() || refreshing()"
+          aria-label="Refresh the data"
+        >
+          <fa-icon [icon]="faRotate" [animation]="refreshing() ? 'spin' : undefined" aria-hidden="true"></fa-icon>
+          Refresh
+        </button>
+        @if (refreshNotice(); as notice) {
+          <span class="bgs-refresh-notice" role="status" aria-live="polite">{{ notice }}</span>
+        }
+      </div>
+      <div class="bgs-export">
+        <button
+          mat-stroked-button
+          type="button"
+          [matMenuTriggerFor]="exportMenu"
+          [disabled]="loading()"
+          aria-label="Export the data"
+        >
+          <fa-icon [icon]="faDownload" aria-hidden="true"></fa-icon>
+          Export
+        </button>
+        <mat-menu #exportMenu="matMenu">
+          <button mat-menu-item type="button" (click)="exportJson()">Export as JSON</button>
+          <button mat-menu-item type="button" (click)="exportCsv()">Export as CSV</button>
+        </mat-menu>
+        @if (exportError(); as err) {
+          <span class="bgs-export-error" role="alert" aria-live="assertive" aria-atomic="true">{{ err }}</span>
+        }
+      </div>
+    </div>
   </div>
 
   <div class="bgs-quick-filters">

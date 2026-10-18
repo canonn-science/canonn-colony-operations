@@ -1,94 +1,78 @@
-// Standalone design system for this page: deliberately not the app's dark Material theme — it
-// matches the "plates" look of the published Canonn Colony Census / Faction Atlas reports, so
-// the live and static versions read as the same publication. Every custom property and class is
-// prefixed `cc-` to keep this out of the rest of the app's cascade.
+// The "plates" look of the published Canonn Colony Census / Faction Atlas reports, set on the
+// app's own dark surfaces so the Architects and Factions tabs match the Priorities tab. Every
+// custom property and class is prefixed `cc-` to keep this out of the rest of the app's cascade.
 :host {
   display: block;
-  --cc-bg: #f4f5f3;
-  --cc-panel: #fcfcfb;
-  --cc-ink: #141a1f;
-  --cc-ink-2: #4a5560;
-  --cc-ink-3: #7c8792;
-  --cc-rule: #dfe3e2;
-  --cc-accent: #d4600f;
-  --cc-grid: #e8ebea;
-  --cc-s0: #b9c0c6;
-  --cc-s1: #2a78d6;
-  --cc-s2: #eb6834;
-  --cc-s3: #1baf7a;
-  --cc-s4: #eda100;
-  --cc-s7: #6250d6;
-  --cc-q1: #86b6ef;
-  --cc-q2: #6da7ec;
-  --cc-q3: #5598e7;
-  --cc-q4: #3987e5;
-  --cc-q5: #2a78d6;
-  --cc-q6: #1c5cab;
-  --cc-q7: #104281;
-  // A qualitative palette for the Faction Atlas's clusters — distinct hues, not a gradient.
-  --cc-c0: #2a78d6;
-  --cc-c1: #d4600f;
-  --cc-c2: #1baf7a;
-  --cc-c3: #b23a9e;
-  --cc-c4: #c9a227;
-  --cc-c5: #5a67d8;
-  --cc-c6: #cc4747;
-  --cc-c7: #3aa6a6;
-  --cc-link: rgba(20, 26, 31, 0.16);
   --cc-f-display: 'Saira Semi Condensed', 'Arial Narrow', system-ui, sans-serif;
   --cc-f-body: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --cc-f-mono: 'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace;
+
+  --cc-bg: transparent;
+  --cc-panel: var(--color-surface-2);
+  --cc-ink: #eef1f2;
+  --cc-ink-2: #b3bcc4;
+  --cc-ink-3: #7f8a94;
+  --cc-rule: var(--color-border-muted);
+  --cc-accent: #f08a3c;
+  --cc-grid: #1f262c;
+  --cc-s0: #4a545d;
+  --cc-s1: #3987e5;
+  --cc-s2: #d95926;
+  --cc-s3: #199e70;
+  --cc-s4: #c98500;
+  --cc-s7: #9085e9;
+  --cc-q1: #184f95;
+  --cc-q2: #1c5cab;
+  --cc-q3: #256abf;
+  --cc-q4: #2a78d6;
+  --cc-q5: #3987e5;
+  --cc-q6: #5598e7;
+  --cc-q7: #86b6ef;
+  // A qualitative palette for the Faction Atlas's clusters — distinct hues, not a gradient.
+  --cc-c0: #3987e5;
+  --cc-c1: #f08a3c;
+  --cc-c2: #199e70;
+  --cc-c3: #d457bb;
+  --cc-c4: #d9bb3c;
+  --cc-c5: #7c87ec;
+  --cc-c6: #e2655f;
+  --cc-c7: #4fc2c2;
+  --cc-link: rgba(238, 241, 242, 0.14);
 
   background: var(--cc-bg);
   color: var(--cc-ink);
   font-family: var(--cc-f-body);
   font-size: 15px;
   line-height: 1.55;
-  min-height: 100vh;
-}
-
-@media (prefers-color-scheme: dark) {
-  :host {
-    --cc-bg: #0e1216;
-    --cc-panel: #151a1f;
-    --cc-ink: #eef1f2;
-    --cc-ink-2: #b3bcc4;
-    --cc-ink-3: #7f8a94;
-    --cc-rule: #262e35;
-    --cc-accent: #f08a3c;
-    --cc-grid: #1f262c;
-    --cc-s0: #4a545d;
-    --cc-s1: #3987e5;
-    --cc-s2: #d95926;
-    --cc-s3: #199e70;
-    --cc-s4: #c98500;
-    --cc-s7: #9085e9;
-    --cc-q1: #184f95;
-    --cc-q2: #1c5cab;
-    --cc-q3: #256abf;
-    --cc-q4: #2a78d6;
-    --cc-q5: #3987e5;
-    --cc-q6: #5598e7;
-    --cc-q7: #86b6ef;
-    --cc-c0: #3987e5;
-    --cc-c1: #f08a3c;
-    --cc-c2: #199e70;
-    --cc-c3: #d457bb;
-    --cc-c4: #d9bb3c;
-    --cc-c5: #7c87ec;
-    --cc-c6: #e2655f;
-    --cc-c7: #4fc2c2;
-    --cc-link: rgba(238, 241, 242, 0.14);
-  }
 }
 
 .cc-page {
-  max-width: 1080px;
-  margin: 0 auto;
-  padding: 28px 16px 56px;
+  // Full width, like the Priorities tab.
+  padding: 16px 20px 32px;
   display: flex;
   flex-direction: column;
   gap: 40px;
+}
+
+// The plates sit in two columns on wide screens: `cc-wide` ones span both, `cc-half` ones pair up
+// (their order is set inline in the template). One column below 1100px.
+.cc-cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 40px;
+
+  > section {
+    min-width: 0;
+  }
+
+  @media (min-width: 1100px) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 40px 32px;
+
+    > .cc-wide {
+      grid-column: 1 / -1;
+    }
+  }
 }
 
 .cc-header {
@@ -139,33 +123,6 @@ h1 {
   max-width: 68ch;
   color: var(--cc-ink-2);
   margin: 0;
-}
-
-.cc-asof {
-  font-family: var(--cc-f-mono);
-  font-size: 12px;
-  color: var(--cc-ink-3);
-  margin: 4px 0 0;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.cc-refresh {
-  font: inherit;
-  font-family: var(--cc-f-mono);
-  font-size: 12px;
-  padding: 3px 10px;
-  border: 1px solid var(--cc-rule);
-  background: var(--cc-panel);
-  color: var(--cc-ink);
-  border-radius: 4px;
-  cursor: pointer;
-
-  &:hover {
-    border-color: var(--cc-ink-3);
-  }
 }
 
 .cc-stats {

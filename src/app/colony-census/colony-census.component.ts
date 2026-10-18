@@ -7,7 +7,9 @@ import {
   computed,
   effect,
   inject,
+  input,
   signal,
+  untracked,
   viewChild,
 } from '@angular/core';
 import * as d3 from 'd3';
@@ -118,7 +120,7 @@ interface FNLink {
 type FNAdjEntry = [FNNode, number, FNLink];
 
 /**
- * A live-data companion to the published "Canonn Colony Census" and "Canonn Faction Atlas"
+ * Shown as the Architects and Factions tabs (see `section`). A live-data companion to the published "Canonn Colony Census" and "Canonn Faction Atlas"
  * reports: the same visual language (plates, stat tiles, the Saira/IBM Plex type system) and
  * the same interactive charts — rivals, architects with a per-architect map, a population
  * scatter, influence and freshness histograms — but every number and every chart here is drawn
@@ -138,6 +140,9 @@ type FNAdjEntry = [FNNode, number, FNLink];
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ColonyCensusComponent implements OnInit, OnDestroy {
+  /** Which half of the census this instance shows: the architect plates, or the faction plates. */
+  readonly section = input<'architects' | 'factions'>('architects');
+
   private readonly bgsService = inject(CanonnBgsService);
   private readonly host = inject(ElementRef<HTMLElement>);
 
@@ -320,7 +325,7 @@ export class ColonyCensusComponent implements OnInit, OnDestroy {
   protected readonly factionNetwork = signal<FactionNetworkData | null>(null);
   /** Shared across the web/chord/map plates: clicking a cluster legend entry highlights it everywhere. */
   protected readonly selectedCluster = signal<number | null>(null);
-  protected readonly fullMinShared = signal(1);
+  protected readonly fullMinShared = signal(15);
   protected readonly fullShowHubs = signal(true);
   protected readonly fullRelayout = signal(true);
   protected readonly mapScope = signal<'core' | 'all'>('core');
@@ -389,7 +394,12 @@ export class ColonyCensusComponent implements OnInit, OnDestroy {
       const snapshot = await this.bgsService.getSystems();
       this.generatedAt.set(snapshot.generatedAt);
       this.rows.set(snapshot.rows);
-      this.stats.set(computeCensusStats(snapshot.rows));
+      const stats = computeCensusStats(snapshot.rows);
+      this.stats.set(stats);
+      // Open on the first architect (the one with the most systems) rather than an empty detail pane.
+      const first = stats.architects[0]?.name ?? null;
+      this.selectedArchitect.set(first);
+      this.architectQuery.set(first ?? '');
       this.factionNetwork.set(computeFactionNetwork(snapshot.rows));
       this.status.set('ready');
     } catch (error) {
@@ -1448,6 +1458,12 @@ export class ColonyCensusComponent implements OnInit, OnDestroy {
       this.renderFullNetwork();
       this.hideTip();
     };
+
+    // The baseline layout above is the minShared = 1 picture; settle into the starting threshold.
+    // Untracked so the slider doesn't re-run this whole setup (onFullControlsChange owns that).
+    untracked(() => {
+      if (this.fullRelayout() && this.fullMinShared() > 1) this.fnRelayout();
+    });
   }
 
   private renderFullNetwork(): void {

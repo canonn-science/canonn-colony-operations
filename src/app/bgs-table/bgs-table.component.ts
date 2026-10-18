@@ -1,7 +1,6 @@
-import { ChangeDetectionStrategy, Component, HostListener, OnDestroy, computed, effect, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, HostListener, OnDestroy, computed, effect, inject, output, signal } from '@angular/core';
 import { DecimalPipe } from '@angular/common';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { RouterLink } from '@angular/router';
 import { FormControl, ReactiveFormsModule } from '@angular/forms';
 import { MatAutocompleteModule } from '@angular/material/autocomplete';
 import { MatButtonModule } from '@angular/material/button';
@@ -19,7 +18,7 @@ import {
   faCircleInfo,
   faCopy,
   faDownload,
-  faLink,
+  faRotate,
   faMagnifyingGlass,
 } from '@fortawesome/free-solid-svg-icons';
 import {
@@ -34,7 +33,6 @@ import {
   AssignArchitectDialogComponent,
   AssignArchitectDialogData,
 } from '../assign-architect-dialog/assign-architect-dialog.component';
-import { CanonnLogoComponent } from '../canonn-logo/canonn-logo.component';
 import { InfluenceChangeComponent } from '../influence-change/influence-change.component';
 import {
   InfluenceChartDialogComponent,
@@ -130,11 +128,23 @@ function toAnchorPoint(system: TypeaheadSystem): AnchorPoint {
   return { systemName: system.name, x: system.x, y: system.y, z: system.z };
 }
 
+/** The least time between manual refreshes (ms). */
+export const REFRESH_COOLDOWN_MS = 5 * 60 * 1000;
+
+/** A wait as "3 minutes" or "1 minute" when a minute or more is left (rounded up), else "42 seconds". */
+export function formatWait(ms: number): string {
+  const seconds = Math.ceil(ms / 1000);
+  if (seconds >= 60) {
+    const minutes = Math.ceil(seconds / 60);
+    return `${minutes} minute${minutes === 1 ? '' : 's'}`;
+  }
+  return `${seconds} second${seconds === 1 ? '' : 's'}`;
+}
+
 @Component({
   selector: 'app-bgs-table',
   imports: [
     DecimalPipe,
-    RouterLink,
     ReactiveFormsModule,
     MatAutocompleteModule,
     MatButtonModule,
@@ -144,7 +154,6 @@ function toAnchorPoint(system: TypeaheadSystem): AnchorPoint {
     MatSelectModule,
     MatTooltipModule,
     FaIconComponent,
-    CanonnLogoComponent,
     InfluenceChangeComponent,
     InfluenceSparklineComponent,
     LoadingTerminalComponent,
@@ -163,7 +172,7 @@ export class BgsTableComponent implements OnDestroy {
   protected readonly faCopy = faCopy;
   protected readonly faCheck = faCheck;
   protected readonly faDownload = faDownload;
-  protected readonly faLink = faLink;
+  protected readonly faRotate = faRotate;
   protected readonly faCircleInfo = faCircleInfo;
   /** Both Canonn-affiliated factions — their bars are highlighted orange in the Factions chart. */
   protected readonly canonnFactionNames: ReadonlySet<string> = new Set([CANONN_FACTION, CDSR_FACTION]);
@@ -185,13 +194,18 @@ export class BgsTableComponent implements OnDestroy {
 
   protected readonly pageIndex = signal(0);
   protected readonly loading = signal(true);
+  /** Tells the page shell when the list is loading, so its logo can animate. */
+  readonly loadingChange = output<boolean>();
   /** The system name last copied to the clipboard, shown as a brief checkmark on its row. */
   protected readonly copiedSystem = signal<string | null>(null);
   private copiedResetHandle: ReturnType<typeof setTimeout> | undefined;
-  /** Briefly true after the share-link button copies a URL, to swap its icon for a checkmark. */
-  protected readonly linkCopied = signal(false);
-  private linkCopiedResetHandle: ReturnType<typeof setTimeout> | undefined;
   protected readonly errorMessage = signal<string | null>(null);
+  /** True while a manual refresh is fetching. */
+  protected readonly refreshing = signal(false);
+  /** The "wait N minutes" note shown when Refresh is pressed during its cooldown; clears itself. */
+  protected readonly refreshNotice = signal<string | null>(null);
+  private lastRefreshAt: number | null = null;
+  private refreshNoticeHandle: ReturnType<typeof setTimeout> | undefined;
   protected readonly exportError = signal<string | null>(null);
 
   protected readonly mode = signal<Mode>('column');
@@ -394,6 +408,7 @@ export class BgsTableComponent implements OnDestroy {
     // first system, a search result, or the current top row of a column sort — without
     // fighting the user's own in-progress typing (this only reacts to the anchor actually
     // changing, which only happens on a deliberate action).
+    effect(() => this.loadingChange.emit(this.loading()));
     effect(() => {
       const name = this.anchorName();
       if (name !== null) {
@@ -414,7 +429,7 @@ export class BgsTableComponent implements OnDestroy {
       clearTimeout(this.suggestionDebounceTimer);
     }
     clearTimeout(this.copiedResetHandle);
-    clearTimeout(this.linkCopiedResetHandle);
+    clearTimeout(this.refreshNoticeHandle);
     clearInterval(this.nowTimerHandle);
     window.removeEventListener('focus', this.onWindowFocus);
   }
@@ -461,6 +476,43 @@ export class BgsTableComponent implements OnDestroy {
     }
   }
 
+  /**
+   * The Refresh button: fetches the list afresh, but at most once per {@link REFRESH_COOLDOWN_MS};
+   * pressed sooner, it says how long is left instead. The cooldown runs from the last refresh.
+   */
+  protected async refresh(): Promise<void> {
+    if (this.refreshing() || this.loading()) {
+      return;
+    }
+    const remaining = this.lastRefreshAt === null ? 0 : this.lastRefreshAt + REFRESH_COOLDOWN_MS - Date.now();
+    if (remaining > 0) {
+      this.showRefreshNotice(`Please wait ${formatWait(remaining)} before refreshing again.`);
+      return;
+    }
+    this.lastRefreshAt = Date.now();
+    this.refreshing.set(true);
+    try {
+      const snapshot = await this.bgsService.refreshSystems();
+      this.allRows.set(snapshot.rows);
+      const pages = this.displayTotalPages();
+      if (pages !== null && this.pageIndex() >= pages) {
+        this.pageIndex.set(pages - 1);
+      }
+    } catch {
+      // The failed attempt shouldn't lock the user out: let them try again straight away.
+      this.lastRefreshAt = null;
+      this.showRefreshNotice('Refresh failed. Please try again.');
+    } finally {
+      this.refreshing.set(false);
+    }
+  }
+
+  private showRefreshNotice(message: string): void {
+    this.refreshNotice.set(message);
+    clearTimeout(this.refreshNoticeHandle);
+    this.refreshNoticeHandle = setTimeout(() => this.refreshNotice.set(null), 5000);
+  }
+
   /** Copies a system name to the clipboard and shows a brief checkmark in its place. */
   protected async copySystemName(systemName: string): Promise<void> {
     try {
@@ -473,18 +525,9 @@ export class BgsTableComponent implements OnDestroy {
     this.copiedResetHandle = setTimeout(() => this.copiedSystem.set(null), 1500);
   }
 
-  /** Copies a URL carrying every active quick filter and the current sort, and shows a brief checkmark on the button. */
-  protected async copyShareLink(): Promise<void> {
-    const query = this.buildShareQueryParams().toString();
-    const url = `${window.location.origin}${window.location.pathname}${query ? '?' + query : ''}`;
-    try {
-      await navigator.clipboard.writeText(url);
-    } catch {
-      return;
-    }
-    this.linkCopied.set(true);
-    clearTimeout(this.linkCopiedResetHandle);
-    this.linkCopiedResetHandle = setTimeout(() => this.linkCopied.set(false), 1500);
+  /** The query string (no leading `?`) carrying every active quick filter and the current sort, for the page's share link. */
+  shareQuery(): string {
+    return this.buildShareQueryParams().toString();
   }
 
   /** The current quick filters and sort/distance-search state, as query params a loaded page can read back via {@link applyFiltersFromUrl}. A filter/sort left at its default is simply omitted. */

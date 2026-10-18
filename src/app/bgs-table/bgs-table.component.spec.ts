@@ -4,7 +4,7 @@ import { MatDialog } from '@angular/material/dialog';
 import { BgsRow, BgsSnapshot, CanonnBgsService } from '../canonn-bgs.service';
 import { BgsConfig, NO_PRIORITY } from '../data/priority';
 import { InfluenceChartDialogComponent } from '../influence-chart-dialog/influence-chart-dialog.component';
-import { BgsTableComponent } from './bgs-table.component';
+import { BgsTableComponent, formatWait } from './bgs-table.component';
 
 /** A minimal, fully-populated row — tests override only the fields they care about. */
 function row(systemName: string, overrides: Partial<BgsRow> = {}): BgsRow {
@@ -73,6 +73,7 @@ describe('BgsTableComponent over the whole list', () => {
   let dialogOpen: ReturnType<typeof vi.fn>;
   let service: {
     getSystems: ReturnType<typeof vi.fn>;
+    refreshSystems: ReturnType<typeof vi.fn>;
     getArchitectRegistry: ReturnType<typeof vi.fn>;
     typeahead: ReturnType<typeof vi.fn>;
   };
@@ -100,6 +101,7 @@ describe('BgsTableComponent over the whole list', () => {
     dialogOpen = vi.fn();
     service = {
       getSystems: vi.fn(),
+      refreshSystems: vi.fn(),
       getArchitectRegistry: vi.fn().mockResolvedValue([]),
       typeahead: vi.fn().mockResolvedValue({ min_max: [], values: [] }),
     };
@@ -459,6 +461,52 @@ describe('BgsTableComponent over the whole list', () => {
     });
   });
 
+  describe('refresh', () => {
+    it('words a wait in minutes (rounded up) or, under a minute, seconds', () => {
+      expect(formatWait(4 * 60_000 + 1)).toBe('5 minutes');
+      expect(formatWait(61_000)).toBe('2 minutes');
+      expect(formatWait(60_000)).toBe('1 minute');
+      expect(formatWait(42_000)).toBe('42 seconds');
+      expect(formatWait(500)).toBe('1 second');
+    });
+
+    it('fetches afresh once, then asks the user to wait until the cooldown is over', async () => {
+      vi.useFakeTimers();
+      try {
+        service.refreshSystems.mockResolvedValue(snapshot([row('New')]));
+
+        await component['refresh']();
+        expect(service.refreshSystems).toHaveBeenCalledTimes(1);
+        expect(component['refreshNotice']()).toBeNull();
+
+        vi.advanceTimersByTime(90_000);
+        await component['refresh']();
+        expect(service.refreshSystems).toHaveBeenCalledTimes(1);
+        expect(component['refreshNotice']()).toBe('Please wait 4 minutes before refreshing again.');
+
+        vi.advanceTimersByTime(180_000);
+        await component['refresh']();
+        expect(component['refreshNotice']()).toBe('Please wait 30 seconds before refreshing again.');
+
+        vi.advanceTimersByTime(30_000);
+        await component['refresh']();
+        expect(service.refreshSystems).toHaveBeenCalledTimes(2);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('does not start a cooldown when the fetch fails', async () => {
+      service.refreshSystems.mockRejectedValueOnce(new Error('down')).mockResolvedValue(snapshot([]));
+
+      await component['refresh']();
+      expect(component['refreshNotice']()).toBe('Refresh failed. Please try again.');
+
+      await component['refresh']();
+      expect(service.refreshSystems).toHaveBeenCalledTimes(2);
+    });
+  });
+
   describe('share link', () => {
     const originalHref = window.location.href;
 
@@ -474,29 +522,14 @@ describe('BgsTableComponent over the whole list', () => {
       component['setPageSize'](50);
       component['sortByColumn']('architect');
 
-      const writeText = vi.fn().mockResolvedValue(undefined);
-      Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
-
-      await component['copyShareLink']();
-
-      expect(writeText).toHaveBeenCalledWith(
-        `${window.location.origin}${window.location.pathname}?pageSize=50&warElection=1&sort=architect&dir=asc`,
-      );
-      expect(component['linkCopied']()).toBe(true);
+      expect(component.shareQuery()).toBe('pageSize=50&warElection=1&sort=architect&dir=asc');
     });
 
     it('omits every quick filter left at its default, keeping only the (always-active) sort', async () => {
       history.pushState({}, '', '/');
       await createWith([row('Quiet')]);
 
-      const writeText = vi.fn().mockResolvedValue(undefined);
-      Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
-
-      await component['copyShareLink']();
-
-      expect(writeText).toHaveBeenCalledWith(
-        `${window.location.origin}${window.location.pathname}?sort=priority&dir=desc`,
-      );
+      expect(component.shareQuery()).toBe('sort=priority&dir=desc');
     });
 
     it('restores the quick filters, sort and page from the URL on load', async () => {
