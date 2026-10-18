@@ -379,7 +379,12 @@
               </label>
             </div>
             <div class="cc-plate">
-              <canvas #fullCanvas class="cc-net-canvas"></canvas>
+              <canvas #fullCanvas class="cc-net-canvas" aria-label="Complete network of factions sharing systems"></canvas>
+              <div class="cc-map-ctrls">
+                <button type="button" class="cc-ctl" aria-label="Zoom in" (click)="fullZoomIn()">+</button>
+                <button type="button" class="cc-ctl" aria-label="Zoom out" (click)="fullZoomOut()">&minus;</button>
+                <button type="button" class="cc-ctl" (click)="fullZoomFit()">Fit</button>
+              </div>
               <div class="cc-hint"><span>Scroll/pinch to zoom · drag to pan · hover a dot for detail</span><span>Orange = Canonn / CDSR hub links</span></div>
             </div>
           </section>
@@ -408,7 +413,12 @@
               </div>
             </div>
             <div class="cc-plate">
-              <canvas #mapCanvas class="cc-net-canvas cc-map-canvas"></canvas>
+              <canvas #mapCanvas class="cc-net-canvas cc-map-canvas" aria-label="Top-down map of systems coloured by cluster"></canvas>
+              <div class="cc-map-ctrls">
+                <button type="button" class="cc-ctl" aria-label="Zoom in" (click)="mapZoomIn()">+</button>
+                <button type="button" class="cc-ctl" aria-label="Zoom out" (click)="mapZoomOut()">&minus;</button>
+                <button type="button" class="cc-ctl" (click)="mapZoomFit()">Fit</button>
+              </div>
               <div class="cc-hint"><span>Scroll/pinch to zoom · drag to pan · hover a dot for the system</span><span>Ring = Sol</span></div>
             </div>
           </section>
