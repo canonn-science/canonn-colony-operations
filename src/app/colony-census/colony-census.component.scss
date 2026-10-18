@@ -25,6 +25,15 @@
   --cc-q5: #2a78d6;
   --cc-q6: #1c5cab;
   --cc-q7: #104281;
+  // A qualitative palette for the Faction Atlas's clusters — distinct hues, not a gradient.
+  --cc-c0: #2a78d6;
+  --cc-c1: #d4600f;
+  --cc-c2: #1baf7a;
+  --cc-c3: #b23a9e;
+  --cc-c4: #c9a227;
+  --cc-c5: #5a67d8;
+  --cc-c6: #cc4747;
+  --cc-c7: #3aa6a6;
   --cc-f-display: 'Saira Semi Condensed', 'Arial Narrow', system-ui, sans-serif;
   --cc-f-body: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --cc-f-mono: 'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace;
@@ -60,6 +69,14 @@
     --cc-q5: #3987e5;
     --cc-q6: #5598e7;
     --cc-q7: #86b6ef;
+    --cc-c0: #3987e5;
+    --cc-c1: #f08a3c;
+    --cc-c2: #199e70;
+    --cc-c3: #d457bb;
+    --cc-c4: #d9bb3c;
+    --cc-c5: #7c87ec;
+    --cc-c6: #e2655f;
+    --cc-c7: #4fc2c2;
   }
 }
 
@@ -861,6 +878,76 @@ h3 {
       white-space: nowrap;
     }
   }
+}
+
+.cc-cluster-leg {
+  gap: 6px 10px;
+}
+
+.cc-slider-ctl,
+.cc-check-ctl {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--cc-ink-2);
+
+  input[type='range'] {
+    accent-color: var(--cc-accent);
+  }
+
+  input[type='checkbox'] {
+    accent-color: var(--cc-accent);
+  }
+
+  b {
+    font-family: var(--cc-f-mono);
+    color: var(--cc-ink);
+  }
+}
+
+.cc-web-svg {
+  display: block;
+  width: 100%;
+  height: 560px;
+  cursor: grab;
+
+  @media (max-width: 640px) {
+    height: 420px;
+  }
+}
+
+.cc-net-canvas {
+  display: block;
+  width: 100%;
+  height: 560px;
+  touch-action: none;
+  cursor: grab;
+
+  @media (max-width: 640px) {
+    height: 420px;
+  }
+}
+
+.cc-map-canvas {
+  height: 620px;
+
+  @media (max-width: 640px) {
+    height: 460px;
+  }
+}
+
+.cc-chord-wrap {
+  display: flex;
+  justify-content: center;
+  padding: 10px;
+}
+
+.cc-chord-svg {
+  display: block;
+  width: 100%;
+  max-width: 600px;
+  height: auto;
 }
 
 .cc-footer {

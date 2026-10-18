@@ -14,6 +14,14 @@ import { CanonnBgsService, BgsRow } from '../canonn-bgs.service';
 import { CensusStats, computeCensusStats } from '../data/census-stats';
 import { ConflictEntry, MarginEntry, RivalRow, UsSide } from '../data/rivals';
 import { daysElapsed, parseUpdatedAt } from '../data/freshness';
+import {
+  ChordData,
+  FactionNetworkData,
+  FactionNode,
+  FullNetworkNode,
+  MapSystem,
+  computeFactionNetwork,
+} from '../data/faction-network';
 import { LoadingTerminalComponent } from '../loading-terminal/loading-terminal.component';
 
 type LoadStatus = 'loading' | 'ready' | 'error';
@@ -284,6 +292,16 @@ export class ColonyCensusComponent implements OnInit {
     })),
   );
 
+  // ---- Faction Atlas plates --------------------------------------------------------------------
+  protected readonly factionNetwork = signal<FactionNetworkData | null>(null);
+  /** Shared across the web/chord/map plates: clicking a cluster legend entry highlights it everywhere. */
+  protected readonly selectedCluster = signal<number | null>(null);
+  protected readonly fullMinShared = signal(1);
+  protected readonly fullShowHubs = signal(true);
+  protected readonly fullRelayout = signal(true);
+  protected readonly mapScope = signal<'core' | 'all'>('core');
+  protected readonly clusterLegend = computed(() => this.factionNetwork()?.clusters ?? []);
+
   // ---- Chart hosts (d3 draws directly into these) -----------------------------------------
   protected readonly footSvgRef = viewChild<ElementRef<SVGSVGElement>>('footSvg');
   protected readonly rivSvgRef = viewChild<ElementRef<SVGSVGElement>>('rivSvg');
@@ -292,6 +310,20 @@ export class ColonyCensusComponent implements OnInit {
   protected readonly popSvgRef = viewChild<ElementRef<SVGSVGElement>>('popSvg');
   protected readonly infSvgRef = viewChild<ElementRef<SVGSVGElement>>('infSvg');
   protected readonly ageSvgRef = viewChild<ElementRef<SVGSVGElement>>('ageSvg');
+  protected readonly webSvgRef = viewChild<ElementRef<SVGSVGElement>>('webSvg');
+  protected readonly chordSvgRef = viewChild<ElementRef<SVGSVGElement>>('chordSvg');
+  protected readonly fullCanvasRef = viewChild<ElementRef<HTMLCanvasElement>>('fullCanvas');
+  protected readonly mapCanvasRef = viewChild<ElementRef<HTMLCanvasElement>>('mapCanvas');
+
+  // Mutable simulation/zoom state for the two canvas plates — not signals: d3 mutates these every
+  // tick/zoom gesture, and routing that through change detection would be wasted work.
+  private fullSimNodes: (FullNetworkNode & d3.SimulationNodeDatum)[] = [];
+  private fullSim?: d3.Simulation<FullNetworkNode & d3.SimulationNodeDatum, undefined>;
+  private fullSimLinks: { source: FullNetworkNode & d3.SimulationNodeDatum; target: FullNetworkNode & d3.SimulationNodeDatum; shared: number }[] = [];
+  private fullTransform = d3.zoomIdentity;
+  private fullHover: FullNetworkNode | null = null;
+  private mapTransform = d3.zoomIdentity;
+  private mapHover: MapSystem | null = null;
 
   constructor() {
     effect(() => this.drawInfluenceHistogram());
@@ -301,7 +333,26 @@ export class ColonyCensusComponent implements OnInit {
     effect(() => this.drawPopulationScatter());
     effect(() => this.drawRivals());
     effect(() => this.drawFootprintStrip());
+    effect(() => this.drawFactionWeb());
+    effect(() => this.drawChord());
+    effect(() => this.drawFullNetwork());
+    effect(() => this.drawFactionMap());
+    effect(() => {
+      if (this.fullCanvasRef() && !this.fullZoomReady) {
+        this.fullZoomReady = true;
+        this.onFullCanvasReady();
+      }
+    });
+    effect(() => {
+      if (this.mapCanvasRef() && !this.mapZoomReady) {
+        this.mapZoomReady = true;
+        this.onMapCanvasReady();
+      }
+    });
   }
+
+  private fullZoomReady = false;
+  private mapZoomReady = false;
 
   ngOnInit(): void {
     void this.load();
@@ -311,11 +362,16 @@ export class ColonyCensusComponent implements OnInit {
     this.status.set('loading');
     this.selectedArchitect.set(null);
     this.selectedRival.set(null);
+    this.selectedCluster.set(null);
+    this.fullSimNodes = [];
+    this.fullSim?.stop();
+    this.fullSim = undefined;
     try {
       const snapshot = await this.bgsService.getSystems();
       this.generatedAt.set(snapshot.generatedAt);
       this.rows.set(snapshot.rows);
       this.stats.set(computeCensusStats(snapshot.rows));
+      this.factionNetwork.set(computeFactionNetwork(snapshot.rows));
       this.status.set('ready');
     } catch (error) {
       this.errorMessage.set(error instanceof Error ? error.message : 'Something went wrong loading the BGS data.');
@@ -365,6 +421,18 @@ export class ColonyCensusComponent implements OnInit {
 
   protected selectRival(name: string): void {
     this.selectedRival.update(current => (current === name ? null : name));
+  }
+
+  protected toggleCluster(id: number): void {
+    this.selectedCluster.update(current => (current === id ? null : id));
+  }
+
+  /** Colour for a cluster id: -1/-2 (unclustered / hub) fall back to the neutral swatch. */
+  private clusterColor(cluster: number): string {
+    if (cluster < 0) {
+      return this.cssVar('--cc-s0');
+    }
+    return this.cssVar(`--cc-c${cluster % 8}`);
   }
 
   // ---- Tooltip --------------------------------------------------------------------------------
@@ -1007,6 +1075,486 @@ export class ColonyCensusComponent implements OnInit {
         this.hideTip();
       })
       .on('click', (_event: PointerEvent, rival) => this.selectRival(rival.faction));
+  }
+
+  // ---- Plate 7: the faction web (force-directed, filtered to widely-present factions) --------
+  private drawFactionWeb(): void {
+    const ref = this.webSvgRef();
+    const net = this.factionNetwork();
+    if (!ref || !net || net.web.nodes.length === 0) {
+      return;
+    }
+    const svg = d3.select(ref.nativeElement);
+    svg.selectAll('*').remove();
+    const el = ref.nativeElement;
+    const W = el.clientWidth || 900;
+    const H = 560;
+    svg.attr('viewBox', `0 0 ${W} ${H}`);
+
+    type WebNode = FactionNode & d3.SimulationNodeDatum;
+    const nodes: WebNode[] = net.web.nodes.map(n => ({ ...n }));
+    const nodeById = new Map(nodes.map(n => [n.id, n]));
+    const links = net.web.links.map(l => ({ a: l.a, b: l.b, shared: l.shared, lift: l.lift }));
+    const simLinks = links.map(l => ({ ...l, source: nodeById.get(l.a)!, target: nodeById.get(l.b)! }));
+
+    const r = d3.scaleSqrt([1, Math.max(1, d3.max(nodes, n => n.presence) ?? 1)], [3.5, 17]);
+    const maxLift = Math.max(4, d3.max(links, l => l.lift) ?? 4);
+    const lw = d3.scaleLinear([1, maxLift], [0.6, 3]).clamp(true);
+
+    const sim = d3
+      .forceSimulation(nodes)
+      .force(
+        'link',
+        d3
+          .forceLink(simLinks)
+          .id((d: d3.SimulationNodeDatum) => (d as WebNode).id)
+          .distance(58)
+          .strength(0.3),
+      )
+      .force('charge', d3.forceManyBody().strength(-80))
+      .force('center', d3.forceCenter(W / 2, H / 2))
+      .force(
+        'collide',
+        d3.forceCollide((d: WebNode) => r(d.presence) + 2),
+      )
+      .stop();
+    for (let i = 0; i < 240; i++) sim.tick();
+
+    const g = svg.append('g');
+    const linkSel = g
+      .append('g')
+      .selectAll('line')
+      .data(simLinks)
+      .join('line')
+      .attr('x1', d => d.source.x!)
+      .attr('y1', d => d.source.y!)
+      .attr('x2', d => d.target.x!)
+      .attr('y2', d => d.target.y!)
+      .attr('stroke', this.cssVar('--cc-grid'))
+      .attr('stroke-width', d => lw(d.lift));
+
+    const selected = this.selectedCluster();
+    const nodeSel = g
+      .append('g')
+      .selectAll<SVGCircleElement, WebNode>('circle')
+      .data(nodes)
+      .join('circle')
+      .attr('cx', d => d.x!)
+      .attr('cy', d => d.y!)
+      .attr('r', d => r(d.presence))
+      .attr('fill', d => this.clusterColor(d.cluster))
+      .attr('fill-opacity', d => (selected === null || d.cluster === selected ? 1 : 0.18))
+      .attr('stroke', this.cssVar('--cc-panel'))
+      .attr('stroke-width', 1);
+
+    const adjacency = new Map<string, Set<string>>();
+    for (const l of links) {
+      (adjacency.get(l.a) ?? adjacency.set(l.a, new Set()).get(l.a)!).add(l.b);
+      (adjacency.get(l.b) ?? adjacency.set(l.b, new Set()).get(l.b)!).add(l.a);
+    }
+
+    const reposition = () => {
+      nodeSel.attr('cx', d => d.x!).attr('cy', d => d.y!);
+      linkSel.attr('x1', d => d.source.x!).attr('y1', d => d.source.y!).attr('x2', d => d.target.x!).attr('y2', d => d.target.y!);
+    };
+
+    nodeSel.call(
+      d3
+        .drag<SVGCircleElement, WebNode>()
+        .on('drag', (event, d) => {
+          d.x = event.x;
+          d.y = event.y;
+          reposition();
+        }),
+    );
+
+    nodeSel
+      .on('pointerenter', (event: PointerEvent, d) => {
+        const neighbors = adjacency.get(d.id) ?? new Set();
+        nodeSel.attr('fill-opacity', n => (n === d || neighbors.has(n.id) ? 1 : 0.12));
+        linkSel.attr('stroke-opacity', l => (l.a === d.id || l.b === d.id ? 0.8 : 0.08));
+        const cluster = net.clusters.find(c => c.id === d.cluster);
+        this.showTip(
+          event,
+          this.tipTitle(d.id) +
+            this.tipRow('Present in', this.fmt(d.presence) + ' systems') +
+            this.tipRow('Controls', this.fmt(d.controls) + ' systems') +
+            this.tipRow('Cluster', cluster ? cluster.lead + ' group' : 'Other'),
+        );
+      })
+      .on('pointermove', (event: PointerEvent) => this.moveTip(event))
+      .on('pointerleave', () => {
+        const sel = this.selectedCluster();
+        nodeSel.attr('fill-opacity', n => (sel === null || n.cluster === sel ? 1 : 0.18));
+        linkSel.attr('stroke-opacity', 1);
+        this.hideTip();
+      })
+      .on('click', (_event: PointerEvent, d) => this.toggleCluster(d.cluster));
+  }
+
+  // ---- Plate 8: the full network — every faction, every shared-system pair (canvas) ----------
+  private initFullSimNodes(net: FactionNetworkData): void {
+    const byId = new Map<string, FullNetworkNode & d3.SimulationNodeDatum>();
+    this.fullSimNodes = net.full.nodes.map((n, i) => {
+      const angle = (n.cluster < 0 ? 8 : n.cluster % 8) * (Math.PI / 4) + (i % 7) * 0.03;
+      const radius = n.isHub ? 0 : 140 + ((i * 37) % 260);
+      const node = { ...n, x: Math.cos(angle) * radius, y: Math.sin(angle) * radius } as FullNetworkNode & d3.SimulationNodeDatum;
+      byId.set(n.id, node);
+      return node;
+    });
+    this.fullSimLinks = net.full.links.map(l => ({
+      source: this.fullSimNodes[l.a],
+      target: this.fullSimNodes[l.b],
+      shared: l.shared,
+    }));
+  }
+
+  private runFullSimulation(visibleLinks: { source: FullNetworkNode & d3.SimulationNodeDatum; target: FullNetworkNode & d3.SimulationNodeDatum; shared: number }[]): void {
+    this.fullSim?.stop();
+    const sim = d3
+      .forceSimulation(this.fullSimNodes)
+      .force(
+        'link',
+        d3
+          .forceLink(visibleLinks)
+          .distance(34)
+          .strength(0.04),
+      )
+      .force('charge', d3.forceManyBody().strength(-18).distanceMax(320))
+      .force('center', d3.forceCenter(0, 0))
+      .force(
+        'radial',
+        d3
+          .forceRadial((d: d3.SimulationNodeDatum) => ((d as FullNetworkNode).isHub ? 0 : 160), 0, 0)
+          .strength((d: d3.SimulationNodeDatum) => ((d as FullNetworkNode).isHub ? 0.4 : 0.02)),
+      )
+      .stop();
+    for (let i = 0; i < 160; i++) sim.tick();
+    this.fullSim = sim;
+  }
+
+  private drawFullNetwork(): void {
+    const ref = this.fullCanvasRef();
+    const net = this.factionNetwork();
+    if (!ref || !net || net.full.nodes.length === 0) {
+      return;
+    }
+    const canvas = ref.nativeElement;
+    const needsInit = this.fullSimNodes.length === 0;
+    if (needsInit) {
+      this.initFullSimNodes(net);
+    }
+    const minShared = this.fullMinShared();
+    const showHubs = this.fullShowHubs();
+    const relayout = this.fullRelayout();
+    const visibleLinks = this.fullSimLinks.filter(l => l.shared >= minShared && (showHubs || (!l.source.isHub && !l.target.isHub)));
+    if (relayout) {
+      this.runFullSimulation(visibleLinks);
+    }
+    this.renderFullCanvas(canvas, net, visibleLinks, minShared, showHubs);
+  }
+
+  private renderFullCanvas(
+    canvas: HTMLCanvasElement,
+    net: FactionNetworkData,
+    visibleLinks: { source: FullNetworkNode & d3.SimulationNodeDatum; target: FullNetworkNode & d3.SimulationNodeDatum; shared: number }[],
+    minShared: number,
+    showHubs: boolean,
+  ): void {
+    const dpr = window.devicePixelRatio || 1;
+    const W = canvas.clientWidth || 900;
+    const H = canvas.clientHeight || 560;
+    canvas.width = W * dpr;
+    canvas.height = H * dpr;
+    const ctx = canvas.getContext('2d')!;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+    const t = this.fullTransform;
+    ctx.save();
+    ctx.translate(W / 2 + t.x, H / 2 + t.y);
+    ctx.scale(t.k, t.k);
+
+    const r = d3.scaleSqrt([1, Math.max(1, d3.max(this.fullSimNodes, n => n.presence) ?? 1)], [1.4, 7]);
+    const hover = this.fullHover;
+    const hoverNeighbors = new Set<string>();
+    if (hover) {
+      for (const l of visibleLinks) {
+        if (l.source.id === hover.id) hoverNeighbors.add(l.target.id);
+        if (l.target.id === hover.id) hoverNeighbors.add(l.source.id);
+      }
+    }
+
+    ctx.lineWidth = 1 / t.k;
+    for (const l of visibleLinks) {
+      const dim = hover && l.source.id !== hover.id && l.target.id !== hover.id;
+      ctx.strokeStyle = dim ? this.cssVar('--cc-grid') : l.source.isHub || l.target.isHub ? this.cssVar('--cc-accent') : this.cssVar('--cc-ink-3');
+      ctx.globalAlpha = dim ? 0.12 : l.source.isHub || l.target.isHub ? 0.55 : 0.3;
+      ctx.beginPath();
+      ctx.moveTo(l.source.x!, l.source.y!);
+      ctx.lineTo(l.target.x!, l.target.y!);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+
+    for (const n of this.fullSimNodes) {
+      if (n.isHub && !showHubs) continue;
+      const dim = hover && n.id !== hover.id && !hoverNeighbors.has(n.id);
+      ctx.beginPath();
+      ctx.arc(n.x!, n.y!, n.isHub ? 9 : r(n.presence), 0, Math.PI * 2);
+      ctx.fillStyle = n.isHub ? this.cssVar('--cc-accent') : this.clusterColor(n.cluster);
+      ctx.globalAlpha = dim ? 0.15 : 1;
+      ctx.fill();
+      if (n.isHub) {
+        ctx.lineWidth = 1.5 / t.k;
+        ctx.strokeStyle = this.cssVar('--cc-panel');
+        ctx.stroke();
+      }
+    }
+    ctx.globalAlpha = 1;
+    ctx.restore();
+
+    ctx.font = `11px ${this.cssVar('--cc-f-mono')}`;
+    ctx.fillStyle = this.cssVar('--cc-ink-3');
+    ctx.fillText(`${this.fmt(this.fullSimNodes.length)} factions · ${this.fmt(visibleLinks.length)} links shown (≥ ${minShared} shared)`, 10, H - 10);
+  }
+
+  protected onFullCanvasReady(): void {
+    const ref = this.fullCanvasRef();
+    if (!ref) return;
+    const canvas = ref.nativeElement;
+    const sel = d3.select(canvas);
+    const zoom = d3
+      .zoom<HTMLCanvasElement, unknown>()
+      .scaleExtent([0.2, 8])
+      .on('zoom', (event: d3.D3ZoomEvent<HTMLCanvasElement, unknown>) => {
+        this.fullTransform = event.transform;
+        this.drawFullNetwork();
+      });
+    sel.call(zoom);
+    sel.on('pointermove', (event: PointerEvent) => {
+      const net = this.factionNetwork();
+      if (!net) return;
+      const W = canvas.clientWidth || 900;
+      const H = canvas.clientHeight || 560;
+      const [mx, my] = d3.pointer(event);
+      const t = this.fullTransform;
+      const x = (mx - W / 2 - t.x) / t.k;
+      const y = (my - H / 2 - t.y) / t.k;
+      let found: (FullNetworkNode & d3.SimulationNodeDatum) | null = null;
+      let bestDist = 12 / t.k;
+      for (const n of this.fullSimNodes) {
+        const d = Math.hypot((n.x ?? 0) - x, (n.y ?? 0) - y);
+        if (d < bestDist) {
+          bestDist = d;
+          found = n;
+        }
+      }
+      if (found !== this.fullHover) {
+        this.fullHover = found;
+        this.drawFullNetwork();
+      }
+      if (found) {
+        const cluster = net.clusters.find(c => c.id === found!.cluster);
+        this.showTip(
+          event,
+          this.tipTitle(found.id) +
+            this.tipRow('Present in', this.fmt(found.presence) + ' systems') +
+            this.tipRow('Cluster', found.isHub ? 'Hub' : cluster ? cluster.lead + ' group' : 'Other'),
+        );
+      } else {
+        this.hideTip();
+      }
+    });
+    sel.on('pointerleave', () => {
+      this.fullHover = null;
+      this.hideTip();
+      this.drawFullNetwork();
+    });
+  }
+
+  protected setFullMinShared(value: string): void {
+    this.fullMinShared.set(Math.max(1, Number(value) || 1));
+  }
+
+  // ---- Plate 9: chord diagram among the most widespread factions ------------------------------
+  private drawChord(): void {
+    const ref = this.chordSvgRef();
+    const net = this.factionNetwork();
+    if (!ref || !net || net.chord.names.length === 0) {
+      return;
+    }
+    const data: ChordData = net.chord;
+    const svg = d3.select(ref.nativeElement);
+    svg.selectAll('*').remove();
+    const size = 560;
+    svg.attr('viewBox', `0 0 ${size} ${size}`);
+    const outerR = size / 2 - 70;
+    const innerR = outerR - 16;
+    const g = svg.append('g').attr('transform', `translate(${size / 2},${size / 2})`);
+
+    const chordLayout = d3.chord().padAngle(0.03).sortSubgroups(d3.descending);
+    const chords = chordLayout(data.matrix);
+    const arc = d3.arc<d3.ChordGroup>().innerRadius(innerR).outerRadius(outerR);
+    const ribbon = d3.ribbon().radius(innerR);
+    const selected = this.selectedCluster();
+
+    g.append('g')
+      .selectAll('path')
+      .data(chords.groups)
+      .join('path')
+      .attr('d', arc)
+      .attr('fill', d => this.clusterColor(data.cluster[d.index]))
+      .attr('fill-opacity', d => (selected === null || data.cluster[d.index] === selected ? 1 : 0.2))
+      .attr('stroke', this.cssVar('--cc-panel'))
+      .on('pointerenter', (event: PointerEvent, d) =>
+        this.showTip(
+          event,
+          this.tipTitle(data.names[d.index]) +
+            this.tipRow('Present in', this.fmt(data.presence[d.index]) + ' systems'),
+        ),
+      )
+      .on('pointermove', (event: PointerEvent) => this.moveTip(event))
+      .on('pointerleave', () => this.hideTip())
+      .on('click', (_event: PointerEvent, d) => this.toggleCluster(data.cluster[d.index]));
+
+    g.append('g')
+      .attr('fill-opacity', 0.75)
+      .selectAll('path')
+      .data(chords)
+      .join('path')
+      .attr('d', ribbon as never)
+      .attr('fill', d => this.clusterColor(data.cluster[d.source.index]))
+      .attr('stroke', this.cssVar('--cc-panel'))
+      .attr('stroke-width', 0.5)
+      .on('pointerenter', (event: PointerEvent, d) =>
+        this.showTip(
+          event,
+          this.tipTitle(`${data.names[d.source.index]} ↔ ${data.names[d.target.index]}`) +
+            this.tipRow('Shared systems', this.fmt(d.source.value)),
+        ),
+      )
+      .on('pointermove', (event: PointerEvent) => this.moveTip(event))
+      .on('pointerleave', () => this.hideTip());
+
+    g.append('g')
+      .selectAll('text')
+      .data(chords.groups)
+      .join('text')
+      .attr('transform', d => {
+        const mid = (d.startAngle + d.endAngle) / 2;
+        return `rotate(${(mid * 180) / Math.PI - 90}) translate(${outerR + 8},0) ${mid > Math.PI ? 'rotate(180)' : ''}`;
+      })
+      .attr('text-anchor', d => (((d.startAngle + d.endAngle) / 2) > Math.PI ? 'end' : 'start'))
+      .attr('class', 'cc-axis-text')
+      .attr('font-size', 11)
+      .text(d => (data.names[d.index].length > 22 ? data.names[d.index].slice(0, 21) + '…' : data.names[d.index]));
+  }
+
+  // ---- Plate 10: the clusters on the galactic plane (canvas) ----------------------------------
+  private drawFactionMap(): void {
+    const ref = this.mapCanvasRef();
+    const net = this.factionNetwork();
+    if (!ref || !net) {
+      return;
+    }
+    const canvas = ref.nativeElement;
+    const dpr = window.devicePixelRatio || 1;
+    const W = canvas.clientWidth || 900;
+    const H = canvas.clientHeight || 560;
+    canvas.width = W * dpr;
+    canvas.height = H * dpr;
+    const ctx = canvas.getContext('2d')!;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+
+    const scope = this.mapScope();
+    const systems = scope === 'core' ? net.map.filter(s => Math.hypot(s.x, s.z) < 4000) : net.map;
+    const xs = d3.extent(systems, s => s.x) as [number, number];
+    const zs = d3.extent(systems, s => s.z) as [number, number];
+    const pad = Math.max(100, (xs[1] - xs[0]) * 0.05);
+    const x = d3.scaleLinear([xs[0] - pad, xs[1] + pad], [0, W]);
+    const z = d3.scaleLinear([zs[0] - pad, zs[1] + pad], [H, 0]);
+
+    const t = this.mapTransform;
+    ctx.save();
+    ctx.translate(t.x, t.y);
+    ctx.scale(t.k, t.k);
+
+    const selected = this.selectedCluster();
+    const hover = this.mapHover;
+    for (const s of systems) {
+      const dim = (selected !== null && s.cluster !== selected) || (hover !== null && hover !== s);
+      ctx.beginPath();
+      ctx.arc(x(s.x), z(s.z), s.canonnPresent ? 2.1 : 1.3, 0, Math.PI * 2);
+      ctx.fillStyle = s.cluster >= 0 ? this.clusterColor(s.cluster) : this.cssVar('--cc-s0');
+      ctx.globalAlpha = dim ? 0.15 : s.canonnPresent ? 0.95 : 0.55;
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    ctx.beginPath();
+    ctx.arc(x(0), z(0), 5 / t.k, 0, Math.PI * 2);
+    ctx.strokeStyle = this.cssVar('--cc-ink');
+    ctx.lineWidth = 1.5 / t.k;
+    ctx.stroke();
+    ctx.restore();
+    this.mapScaleRef = { x, z };
+  }
+
+  private mapScaleRef: { x: d3.ScaleLinear<number, number>; z: d3.ScaleLinear<number, number> } | null = null;
+
+  protected onMapCanvasReady(): void {
+    const ref = this.mapCanvasRef();
+    if (!ref) return;
+    const canvas = ref.nativeElement;
+    const sel = d3.select(canvas);
+    const zoom = d3
+      .zoom<HTMLCanvasElement, unknown>()
+      .scaleExtent([0.5, 20])
+      .on('zoom', (event: d3.D3ZoomEvent<HTMLCanvasElement, unknown>) => {
+        this.mapTransform = event.transform;
+        this.drawFactionMap();
+      });
+    sel.call(zoom);
+    sel.on('pointermove', (event: PointerEvent) => {
+      const net = this.factionNetwork();
+      if (!net || !this.mapScaleRef) return;
+      const [mx, my] = d3.pointer(event);
+      const t = this.mapTransform;
+      const px = (mx - t.x) / t.k;
+      const py = (my - t.y) / t.k;
+      const scope = this.mapScope();
+      const systems = scope === 'core' ? net.map.filter(s => Math.hypot(s.x, s.z) < 4000) : net.map;
+      let found: MapSystem | null = null;
+      let bestDist = 6;
+      for (const s of systems) {
+        const d = Math.hypot(this.mapScaleRef.x(s.x) - px, this.mapScaleRef.z(s.z) - py);
+        if (d < bestDist) {
+          bestDist = d;
+          found = s;
+        }
+      }
+      if (found !== this.mapHover) {
+        this.mapHover = found;
+        this.drawFactionMap();
+      }
+      if (found) {
+        const cluster = net.clusters.find(c => c.id === found!.cluster);
+        this.showTip(
+          event,
+          this.tipTitle(found.systemName) +
+            this.tipRow('Controller', found.controller ?? '—') +
+            this.tipRow('Canonn present', found.canonnPresent ? 'yes' : 'no') +
+            this.tipRow('Cluster', cluster ? cluster.lead + ' group' : '—'),
+        );
+      } else {
+        this.hideTip();
+      }
+    });
+    sel.on('pointerleave', () => {
+      this.mapHover = null;
+      this.hideTip();
+      this.drawFactionMap();
+    });
   }
 
   /** Shared gridlines + value-axis labels for a linear y-scale bar chart. */

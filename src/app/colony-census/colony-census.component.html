@@ -333,6 +333,100 @@
             <svg #ageSvg role="img" aria-label="Systems by time since last update"></svg>
           </div>
         </section>
+
+        @if (factionNetwork(); as net) {
+          <section aria-labelledby="cc-web-h">
+            <div class="cc-plate-head"><span class="cc-tag">Plate 7</span><h2 id="cc-web-h">The faction web</h2></div>
+            <p class="cc-note">
+              Each dot is a minor faction present in at least 15 systems. A line joins two factions that share
+              systems far more often than chance alone would predict. Colours are automatically detected clusters
+              (greedy modularity, run live over the current data — not a published, pre-computed grouping).
+            </p>
+            @if (clusterLegend().length > 0) {
+              <div class="cc-legend cc-cluster-leg">
+                @for (c of clusterLegend(); track c.id) {
+                  <button type="button" class="cc-leg-btn" [attr.aria-pressed]="selectedCluster() === c.id" (click)="toggleCluster(c.id)">
+                    <span class="cc-sw" [style.background]="'var(--cc-c' + (c.id % 8) + ')'"></span>{{ c.lead }} group ({{ c.size }})
+                  </button>
+                }
+              </div>
+            }
+            <div class="cc-plate">
+              <svg #webSvg class="cc-web-svg" role="img" aria-label="Force-directed network of widely-present factions"></svg>
+              <div class="cc-hint"><span>Drag a dot to reposition it · hover to trace its links · click a dot or legend entry to highlight its cluster</span><span>{{ fmt(net.stats.webNodes) }} factions · {{ fmt(net.stats.webLinks) }} links</span></div>
+            </div>
+          </section>
+
+          <section aria-labelledby="cc-full-h">
+            <div class="cc-plate-head"><span class="cc-tag">Plate 8</span><h2 id="cc-full-h">Every connection</h2></div>
+            <p class="cc-note">
+              The same idea with nothing filtered: every faction with any presence at all, and every pair that
+              shares at least one system ({{ fmt(net.stats.factions) }} factions, {{ fmt(net.stats.pairs) }} pairs).
+              Canonn and CDSR appear as two hubs.
+            </p>
+            <div class="cc-ctlrow">
+              <label class="cc-slider-ctl">
+                Minimum shared systems: <b>{{ fullMinShared() }}</b>
+                <input type="range" min="1" max="20" [value]="fullMinShared()" (input)="setFullMinShared($any($event.target).value)" />
+              </label>
+              <label class="cc-check-ctl">
+                <input type="checkbox" [checked]="fullShowHubs()" (change)="fullShowHubs.set($any($event.target).checked)" />
+                Show Canonn &amp; CDSR links
+              </label>
+              <label class="cc-check-ctl">
+                <input type="checkbox" [checked]="fullRelayout()" (change)="fullRelayout.set($any($event.target).checked)" />
+                Re-arrange as links change
+              </label>
+            </div>
+            <div class="cc-plate">
+              <canvas #fullCanvas class="cc-net-canvas"></canvas>
+              <div class="cc-hint"><span>Scroll/pinch to zoom · drag to pan · hover a dot for detail</span><span>Orange = Canonn / CDSR hub links</span></div>
+            </div>
+          </section>
+
+          <section aria-labelledby="cc-chord-h">
+            <div class="cc-plate-head"><span class="cc-tag">Plate 9</span><h2 id="cc-chord-h">Who shares space with whom</h2></div>
+            <p class="cc-note">
+              The {{ net.chord.names.length }} most widespread factions (Canonn and CDSR aside), arranged in a circle.
+              A ribbon's width is the number of systems the two factions both appear in.
+            </p>
+            <div class="cc-plate cc-chord-wrap">
+              <svg #chordSvg class="cc-chord-svg" role="img" aria-label="Chord diagram of shared systems between the most widespread factions"></svg>
+            </div>
+          </section>
+
+          <section aria-labelledby="cc-map-h">
+            <div class="cc-plate-head"><span class="cc-tag">Plate 10</span><h2 id="cc-map-h">The clusters on the galactic plane</h2></div>
+            <p class="cc-note">
+              Every system in the feed, coloured by the cluster of its strongest non-Canonn/CDSR faction. Brighter
+              dots are systems where Canonn itself has a presence.
+            </p>
+            <div class="cc-ctlrow">
+              <div class="cc-seg-ctl" role="group" aria-label="Map scope">
+                <button type="button" [attr.aria-pressed]="mapScope() === 'core'" (click)="mapScope.set('core')">Crowded core</button>
+                <button type="button" [attr.aria-pressed]="mapScope() === 'all'" (click)="mapScope.set('all')">All systems</button>
+              </div>
+            </div>
+            <div class="cc-plate">
+              <canvas #mapCanvas class="cc-net-canvas cc-map-canvas"></canvas>
+              <div class="cc-hint"><span>Scroll/pinch to zoom · drag to pan · hover a dot for the system</span><span>Ring = Sol</span></div>
+            </div>
+          </section>
+
+          <section aria-labelledby="cc-ctrl-h">
+            <div class="cc-plate-head"><span class="cc-tag">Plate 11</span><h2 id="cc-ctrl-h">Who controls the systems Canonn shares</h2></div>
+            <p class="cc-note">Among systems where Canonn has any presence, the factions most often holding control instead.</p>
+            <div class="cc-plate cc-bars">
+              @for (c of net.controllers; track c.faction) {
+                <div class="cc-bar" [title]="c.faction + ': ' + fmt(c.count)">
+                  <span class="cc-nm">{{ c.faction }}</span>
+                  <span class="cc-tr"><span class="cc-fl" [style.width.%]="(c.count / net.controllers[0].count) * 100" style="background: var(--cc-s2)"></span></span>
+                  <span class="cc-v">{{ fmt(c.count) }}</span>
+                </div>
+              }
+            </div>
+          </section>
+        }
       }
     }
   }
