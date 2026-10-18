@@ -1,5 +1,6 @@
 import { BgsRow, CANONN_FACTION, CDSR_FACTION } from '../canonn-bgs.service';
 import { daysElapsed, parseUpdatedAt } from './freshness';
+import { RivalRow, computeRivals } from './rivals';
 
 /** How many systems each presence/control combination accounts for, mirroring the Colony Census report's "Footprint" plate. */
 export interface FootprintStats {
@@ -47,12 +48,6 @@ export interface FreshnessBin {
   count: number;
 }
 
-/** A faction that out-influences both Canonn and CDSR, and how many systems it does so in. */
-export interface RivalTally {
-  faction: string;
-  leadCount: number;
-}
-
 /** Every aggregate the Colony Census page renders, computed once from a live BGS snapshot. */
 export interface CensusStats {
   totalSystems: number;
@@ -71,13 +66,11 @@ export interface CensusStats {
   freshnessBins: FreshnessBin[];
   /** Median age, in whole days, of systems with a known last-seen time; null if none have one. */
   medianAgeDays: number | null;
-  rivals: RivalTally[];
-  /** Open wars/elections involving Canonn or CDSR against a third party (excludes Canonn-vs-CDSR). */
-  openConflicts: number;
+  /** Every faction that currently fights, leads, or presses close against Canonn or CDSR, highest-friction first. */
+  rivals: RivalRow[];
 }
 
 const TOP_PREFERRED_FACTIONS = 7;
-const TOP_RIVALS = 10;
 
 /** Canonn, CDSR, or "another faction" — the three buckets the footprint plate groups control by. */
 function controllerCategory(controllingFaction: string | null): 'C' | 'D' | 'O' {
@@ -242,30 +235,7 @@ export function computeCensusStats(rows: readonly BgsRow[], nowMs: number = Date
   ages.sort((a, b) => a - b);
   const medianAgeDays = ages.length > 0 ? ages[Math.floor(ages.length / 2)] : null;
 
-  const rivalCounts = new Map<string, number>();
-  for (const row of rows) {
-    const canonnInfluence = row.canonnInfluence ?? -1;
-    const cdsrInfluence = row.cdsrInfluence ?? -1;
-    if (canonnInfluence < 0 && cdsrInfluence < 0) {
-      continue;
-    }
-    for (const faction of row.factions) {
-      if (faction.name === CANONN_FACTION || faction.name === CDSR_FACTION) {
-        continue;
-      }
-      if (faction.influencePercent > canonnInfluence && faction.influencePercent > cdsrInfluence) {
-        rivalCounts.set(faction.name, (rivalCounts.get(faction.name) ?? 0) + 1);
-      }
-    }
-  }
-  const rivals = [...rivalCounts.entries()]
-    .map(([faction, leadCount]) => ({ faction, leadCount }))
-    .sort((a, b) => b.leadCount - a.leadCount)
-    .slice(0, TOP_RIVALS);
-
-  const openConflicts = rows.filter(
-    row => (row.warState === 'active' && !row.warIsCanonnVsCanonn) || (row.electionState === 'active' && !row.electionIsCanonnVsCanonn),
-  ).length;
+  const rivals = computeRivals(rows);
 
   return {
     totalSystems,
@@ -280,6 +250,5 @@ export function computeCensusStats(rows: readonly BgsRow[], nowMs: number = Date
     freshnessBins,
     medianAgeDays,
     rivals,
-    openConflicts,
   };
 }

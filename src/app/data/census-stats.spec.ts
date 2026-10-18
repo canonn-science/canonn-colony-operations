@@ -151,32 +151,11 @@ describe('computeCensusStats', () => {
     expect(stats.medianAgeDays).toBe(8);
   });
 
-  it('counts a rival as leading only where it beats both Canonn and CDSR in a system either is present in', () => {
+  it('wires the rivals plate through to computeRivals (see rivals.spec.ts for its own scoring rules)', () => {
     const stats = computeCensusStats([
-      row({
-        canonnInfluence: 10,
-        cdsrInfluence: 5,
-        factions: [{ name: 'Varati Ring', influencePercent: 60 }],
-      }),
-      row({
-        canonnInfluence: 50,
-        factions: [{ name: 'Varati Ring', influencePercent: 10 }],
-      }),
-      // Neither Canonn nor CDSR present — not counted, even though the faction is strong here.
-      row({ factions: [{ name: 'Varati Ring', influencePercent: 90 }] }),
+      row({ canonnInfluence: 10, factions: [{ name: 'Varati Ring', influencePercent: 60 }] }),
     ]);
 
-    expect(stats.rivals).toEqual([{ faction: 'Varati Ring', leadCount: 1 }]);
-  });
-
-  it('counts open conflicts against a third party but not Canonn-vs-CDSR ones', () => {
-    const stats = computeCensusStats([
-      row({ warState: 'active', warIsCanonnVsCanonn: false }),
-      row({ warState: 'active', warIsCanonnVsCanonn: true }),
-      row({ electionState: 'pending', electionIsCanonnVsCanonn: false }),
-      row({ electionState: 'active', electionIsCanonnVsCanonn: false }),
-    ]);
-
-    expect(stats.openConflicts).toBe(2);
+    expect(stats.rivals).toEqual([{ faction: 'Varati Ring', conflicts: [], lead: [{ systemName: 'Test System', us: 'C', marginPoints: 50 }], close: [], score: 1 }]);
   });
 });

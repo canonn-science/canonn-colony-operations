@@ -1,4 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { provideRouter } from '@angular/router';
 import { MatDialog } from '@angular/material/dialog';
 import { BgsRow, BgsSnapshot, CanonnBgsService } from '../canonn-bgs.service';
 import { BgsConfig, NO_PRIORITY } from '../data/priority';
@@ -106,6 +107,7 @@ describe('BgsTableComponent over the whole list', () => {
     await TestBed.configureTestingModule({
       imports: [BgsTableComponent],
       providers: [
+        provideRouter([]),
         { provide: CanonnBgsService, useValue: service },
         { provide: MatDialog, useValue: { open: dialogOpen, openDialogs: [] } },
       ],
