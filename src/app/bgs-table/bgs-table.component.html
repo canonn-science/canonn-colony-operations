@@ -11,7 +11,7 @@
           mat-icon-button
           type="button"
           (click)="copyShareLink()"
-          [title]="linkCopied() ? 'Link copied!' : 'Copy a link with the current filters and sort'"
+          [matTooltip]="linkCopied() ? 'Link copied!' : 'Copy a link with the current filters and sort'"
           [attr.aria-label]="linkCopied() ? 'Link copied' : 'Copy a link with the current filters and sort'"
         >
           <fa-icon [icon]="linkCopied() ? faCheck : faLink" aria-hidden="true"></fa-icon>
@@ -215,7 +215,7 @@
                 class="bgs-sort-header"
                 (click)="sortByColumn('freshness')"
                 [disabled]="loading()"
-                title="Sort by data freshness"
+                matTooltip="Sort by data freshness"
               >
                 Updated
                 @if (sortIndicator('freshness'); as indicator) {
@@ -229,7 +229,7 @@
                 class="bgs-sort-header"
                 (click)="sortByColumn('factionCount')"
                 [disabled]="loading()"
-                title="Sort by number of factions"
+                matTooltip="Sort by number of factions"
               >
                 Factions
                 @if (sortIndicator('factionCount'); as indicator) {
@@ -244,7 +244,7 @@
                 class="bgs-sort-header"
                 (click)="sortByColumn('priority')"
                 [disabled]="loading()"
-                title="Sort by priority"
+                matTooltip="Sort by priority"
               >
                 Priority
                 @if (sortIndicator('priority'); as indicator) {
@@ -258,7 +258,7 @@
                 class="bgs-sort-header"
                 (click)="sortByColumn('controllingFaction')"
                 [disabled]="loading()"
-                title="Sort by controlling faction"
+                matTooltip="Sort by controlling faction"
               >
                 Controlling Faction
                 @if (sortIndicator('controllingFaction'); as indicator) {
@@ -276,7 +276,7 @@
                     [class.bgs-sort-mini--active]="sortIndicator('canonnChange')"
                     (click)="sortByColumn('canonnChange')"
                     [disabled]="loading()"
-                    title="Sort by the change in Canonn influence"
+                    matTooltip="Sort by the change in Canonn influence"
                     aria-label="Sort by the change in Canonn influence"
                   >
                     &Delta;
@@ -290,7 +290,7 @@
                     [class.bgs-sort-mini--active]="sortIndicator('canonn')"
                     (click)="sortByColumn('canonn')"
                     [disabled]="loading()"
-                    title="Sort by Canonn influence"
+                    matTooltip="Sort by Canonn influence"
                     aria-label="Sort by Canonn influence percentage"
                   >
                     %
@@ -311,7 +311,7 @@
                     [class.bgs-sort-mini--active]="sortIndicator('cdsrChange')"
                     (click)="sortByColumn('cdsrChange')"
                     [disabled]="loading()"
-                    title="Sort by the change in Canonn Deep Space Research influence"
+                    matTooltip="Sort by the change in Canonn Deep Space Research influence"
                     aria-label="Sort by the change in Canonn Deep Space Research influence"
                   >
                     &Delta;
@@ -325,7 +325,7 @@
                     [class.bgs-sort-mini--active]="sortIndicator('cdsr')"
                     (click)="sortByColumn('cdsr')"
                     [disabled]="loading()"
-                    title="Sort by Canonn Deep Space Research influence"
+                    matTooltip="Sort by Canonn Deep Space Research influence"
                     aria-label="Sort by Canonn Deep Space Research influence percentage"
                   >
                     %
@@ -342,7 +342,7 @@
                 class="bgs-sort-header"
                 (click)="sortByColumn('architect')"
                 [disabled]="loading()"
-                title="Sort by architect"
+                matTooltip="Sort by architect"
               >
                 Architect
                 @if (sortIndicator('architect'); as indicator) {
@@ -356,7 +356,7 @@
                 class="bgs-sort-header"
                 (click)="sortByColumn('preferredFaction')"
                 [disabled]="loading()"
-                title="Sort by preferred faction"
+                matTooltip="Sort by preferred faction"
               >
                 Preferred Faction
                 @if (sortIndicator('preferredFaction'); as indicator) {
@@ -380,7 +380,7 @@
                   <button
                     type="button"
                     class="bgs-copy-button"
-                    [title]="'Copy ' + row.systemName"
+                    [matTooltip]="'Copy ' + row.systemName"
                     [attr.aria-label]="'Copy ' + row.systemName"
                     (click)="copySystemName(row.systemName)"
                   >
@@ -391,13 +391,13 @@
                     target="_blank"
                     rel="noopener noreferrer"
                     class="bgs-system-link"
-                    [title]="systemNameTitle(row)"
+                    [matTooltip]="systemNameTitle(row)"
                   >{{ row.systemName }}</a>
                   <button
                     type="button"
                     class="bgs-info-button"
                     [class.bgs-info-button--listed]="row.watchlist.length > 0 || row.hasCanonnStation || row.powerplay !== null"
-                    [title]="infoButtonTitle(row)"
+                    [matTooltip]="infoButtonTitle(row)"
                     [attr.aria-label]="infoButtonTitle(row)"
                     (click)="openWatchlistDialog(row)"
                   >
@@ -409,7 +409,7 @@
                   <span
                     class="bgs-freshness-pill"
                     [class]="'bgs-freshness-pill--' + freshness.band"
-                    [title]="freshness.title"
+                    [matTooltip]="freshness.title"
                     [attr.aria-label]="freshness.accessibleName"
                   >
                     <span class="bgs-freshness-dot" aria-hidden="true"></span>
@@ -424,7 +424,7 @@
                           class="bgs-faction-bar"
                           [class.bgs-faction-bar--canonn]="canonnFactionNames.has(faction.name)"
                           [style.height.%]="faction.influencePercent"
-                          [title]="faction.name + ': ' + (faction.influencePercent | number: '1.1-1') + '%'"
+                          [matTooltip]="faction.name + ': ' + (faction.influencePercent | number: '1.1-1') + '%'"
                         ></div>
                       }
                     </div>
@@ -437,7 +437,7 @@
                     <span
                       class="bgs-state-icon bgs-state-icon--retreat"
                       [class.bgs-state-icon--pending]="row.retreatState === 'pending'"
-                      [title]="row.retreatDetails"
+                      [matTooltip]="row.retreatDetails"
                       role="img"
                       [attr.aria-label]="row.retreatDetails ?? 'Retreat'"
                     >⚠️</span>
@@ -447,13 +447,13 @@
                       <span
                         class="bgs-state-icon bgs-state-icon--self"
                         [class.bgs-state-icon--pending]="row.warState === 'pending'"
-                        [title]="'Canonn vs Canonn:\n' + row.warDetails"
+                        [matTooltip]="'Canonn vs Canonn:\n' + row.warDetails"
                       ><img src="assets/canonn.svg" alt="Canonn vs Canonn" class="bgs-state-icon-img" /></span>
                     } @else {
                       <span
                         class="bgs-state-icon"
                         [class.bgs-state-icon--pending]="row.warState === 'pending'"
-                        [title]="row.warDetails"
+                        [matTooltip]="row.warDetails"
                       >🔫</span>
                     }
                   }
@@ -462,13 +462,13 @@
                       <span
                         class="bgs-state-icon bgs-state-icon--self"
                         [class.bgs-state-icon--pending]="row.electionState === 'pending'"
-                        [title]="'Canonn vs Canonn:\n' + row.electionDetails"
+                        [matTooltip]="'Canonn vs Canonn:\n' + row.electionDetails"
                       ><img src="assets/canonn.svg" alt="Canonn vs Canonn" class="bgs-state-icon-img" /></span>
                     } @else {
                       <span
                         class="bgs-state-icon bgs-state-icon--election"
                         [class.bgs-state-icon--pending]="row.electionState === 'pending'"
-                        [title]="row.electionDetails"
+                        [matTooltip]="row.electionDetails"
                       >🗳️</span>
                     }
                   }
@@ -484,7 +484,7 @@
                     <span
                       class="bgs-priority-pill"
                       [class]="'bgs-priority-pill--' + priority.tier"
-                      [title]="priorityTitle(priority)"
+                      [matTooltip]="priorityTitle(priority)"
                     >
                       {{ priority.tier === 'out-of-scope' ? '⛔' : priority.tier }}
                     </span>
@@ -497,7 +497,7 @@
                       <button
                         type="button"
                         class="bgs-spark-button"
-                        title="Show the influence history"
+                        matTooltip="Show the influence history"
                         [attr.aria-label]="'Show the influence history of ' + row.systemName"
                         (click)="openInfluenceChart(row, 'Canonn')"
                       >
@@ -518,7 +518,7 @@
                       <button
                         type="button"
                         class="bgs-spark-button"
-                        title="Show the influence history"
+                        matTooltip="Show the influence history"
                         [attr.aria-label]="'Show the influence history of ' + row.systemName"
                         (click)="openInfluenceChart(row, 'Canonn Deep Space Research')"
                       >
@@ -540,7 +540,7 @@
                     <button
                       type="button"
                       class="bgs-system-link bgs-assign-button"
-                      [title]="'Register the architect of ' + row.systemName"
+                      [matTooltip]="'Register the architect of ' + row.systemName"
                       (click)="openAssignDialog(row)"
                     >Assign</button>
                   } @else {

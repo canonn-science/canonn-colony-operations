@@ -9,6 +9,7 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatMenuModule } from '@angular/material/menu';
 import { MatSelectModule } from '@angular/material/select';
+import { MatTooltipModule } from '@angular/material/tooltip';
 import { FaIconComponent } from '@fortawesome/angular-fontawesome';
 import {
   faCheck,
@@ -139,6 +140,7 @@ function toAnchorPoint(system: TypeaheadSystem): AnchorPoint {
     MatInputModule,
     MatMenuModule,
     MatSelectModule,
+    MatTooltipModule,
     FaIconComponent,
     CanonnLogoComponent,
     InfluenceChangeComponent,
