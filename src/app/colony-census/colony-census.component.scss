@@ -367,14 +367,22 @@ h3 {
   letter-spacing: 0.06em;
 }
 
-svg text {
-  fill: var(--cc-ink);
-}
+// `::ng-deep`, deliberately: every chart in this page is drawn by d3 appending raw SVG nodes
+// straight to the DOM, not by Angular's template renderer — so those nodes never get the
+// `_ngcontent-*` attribute Angular's emulated view encapsulation stamps on template-authored
+// elements, and a plain scoped rule here would silently never match them (the chart text would
+// fall back to the browser's default black fill, invisible in dark mode). Same reasoning as the
+// `.cc-tip-t`/`.cc-tip-r` rules below, which style `[innerHTML]`-inserted nodes for the same cause.
+:host ::ng-deep {
+  svg text {
+    fill: var(--cc-ink);
+  }
 
-.cc-axis-text {
-  font-family: var(--cc-f-mono);
-  font-size: 11px;
-  fill: var(--cc-ink-3);
+  .cc-axis-text {
+    font-family: var(--cc-f-mono);
+    font-size: 11px;
+    fill: var(--cc-ink-3);
+  }
 }
 
 .cc-foot-cards {
