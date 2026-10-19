@@ -187,10 +187,7 @@ export class BgsTableComponent implements OnDestroy {
    */
   private readonly now = signal(Date.now());
   private nowTimerHandle: ReturnType<typeof setInterval> | undefined;
-  private readonly onWindowFocus = () => {
-    this.now.set(Date.now());
-    void this.refreshIfStale();
-  };
+  private readonly onWindowFocus = () => this.now.set(Date.now());
 
   protected readonly pageIndex = signal(0);
   protected readonly loading = signal(true);
@@ -398,10 +395,7 @@ export class BgsTableComponent implements OnDestroy {
     this.architectFilterControl.setValue(readYourName());
     this.applyFiltersFromUrl();
 
-    this.nowTimerHandle = setInterval(() => {
-      this.now.set(Date.now());
-      void this.refreshIfStale();
-    }, 60_000);
+    this.nowTimerHandle = setInterval(() => this.now.set(Date.now()), 60_000);
     window.addEventListener('focus', this.onWindowFocus);
 
     // Keep the search box showing whatever system the table is currently measured from — the
@@ -450,29 +444,6 @@ export class BgsTableComponent implements OnDestroy {
       );
     } finally {
       this.loading.set(false);
-    }
-  }
-
-  /**
-   * Swaps in a newer list when the service has fetched one: it serves what it holds until that is
-   * ten minutes old and fetches again after, so asking is cheap. A failed refresh is ignored —
-   * the table keeps showing what it has, and the next tick or focus tries again.
-   */
-  private async refreshIfStale(): Promise<void> {
-    if (this.loading() || this.allRows() === null) {
-      return;
-    }
-    try {
-      const snapshot = await this.bgsService.getSystems();
-      if (snapshot.rows !== this.allRows()) {
-        this.allRows.set(snapshot.rows);
-        const pages = this.displayTotalPages();
-        if (pages !== null && this.pageIndex() >= pages) {
-          this.pageIndex.set(pages - 1);
-        }
-      }
-    } catch {
-      // Keep what is on screen.
     }
   }
 

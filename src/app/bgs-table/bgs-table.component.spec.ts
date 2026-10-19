@@ -388,41 +388,6 @@ describe('BgsTableComponent over the whole list', () => {
     });
   });
 
-  describe('keeping the list fresh', () => {
-    it('swaps in a newer list the service has fetched, keeping the order and filters', async () => {
-      component['setArchitectFilterMode']('none');
-      service.getSystems.mockResolvedValue(snapshot([row('Only One', { priority: { ...NO_PRIORITY, score: 50 } })]));
-
-      await component['refreshIfStale']();
-
-      expect(visibleNames()).toEqual(['Only One']);
-      expect(total()).toBe(1);
-      expect(component['architectFilterMode']()).toBe('none');
-    });
-
-    it('steps back to the last page when the new list is shorter than where the user was', async () => {
-      component['setPageSize'](10);
-      for (let i = 0; i < 20; i++) {
-        component['nextPage']();
-      }
-      service.getSystems.mockResolvedValue(snapshot(allSystems().slice(0, 35)));
-
-      await component['refreshIfStale']();
-
-      expect(component['pageIndex']()).toBe(3);
-      expect(visibleNames()).toHaveLength(5);
-    });
-
-    it('keeps showing what it has when the refresh fails', async () => {
-      service.getSystems.mockRejectedValue(new Error('offline'));
-
-      await component['refreshIfStale']();
-
-      expect(total()).toBe(TOTAL_SYSTEMS);
-      expect(component['errorMessage']()).toBeNull();
-    });
-  });
-
   describe('influence chart', () => {
     it('opens the history chart of the system, highlighting the faction whose sparkline was clicked', () => {
       const varati = row('Varati', { systemAddress: '3932277478106', influenceAverages: { Canonn: 0.45 } });
