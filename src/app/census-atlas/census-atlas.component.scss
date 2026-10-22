@@ -1,0 +1,490 @@
+// Unencapsulated (see the component): every rule is scoped under the element and prefixed `ca-`.
+// Colours and fonts come from the census page's `--cc-*` custom properties.
+app-census-atlas {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+
+  .ca-panel {
+    background: var(--cc-panel);
+    border: 1px solid var(--cc-rule);
+    position: relative;
+    min-width: 0;
+  }
+
+  .ca-pad {
+    padding: 16px 18px;
+  }
+
+  .ca-center svg {
+    display: block;
+    margin: 0 auto;
+  }
+
+  svg {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+
+  .ca-grid,
+  .ca-map {
+    display: block;
+    width: 100%;
+  }
+
+  .ca-hint {
+    font-family: var(--cc-f-mono);
+    font-size: 11.5px;
+    color: var(--cc-ink-3);
+    padding: 8px 12px;
+    border-top: 1px solid var(--cc-rule);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 16px;
+    justify-content: space-between;
+  }
+
+  .ca-mini-head {
+    font-family: var(--cc-f-mono);
+    font-size: 12px;
+    color: var(--cc-ink-3);
+    padding: 12px 16px 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+
+    &.ca-flush {
+      padding: 0 0 10px;
+    }
+  }
+
+  .ca-note-sm {
+    font-size: 12.5px;
+    color: var(--cc-ink-2);
+    margin-top: 8px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .ca-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 18px;
+    font-size: 13px;
+    color: var(--cc-ink-2);
+
+    span {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+    }
+  }
+
+  .ca-sw {
+    display: inline-block;
+    width: 11px;
+    height: 11px;
+    border-radius: 2px;
+    flex: none;
+    margin-right: 5px;
+    vertical-align: -1px;
+  }
+
+  .ca-c {
+    background: var(--cc-canonn);
+  }
+  .ca-d {
+    background: var(--cc-cdsr);
+  }
+  .ca-o {
+    background: var(--cc-other);
+  }
+  .ca-u {
+    background: var(--cc-unset);
+  }
+  .ca-o2 {
+    background: #5a6472;
+  }
+  .ca-o3 {
+    background: #39424e;
+  }
+  .ca-none {
+    background: #262d36;
+  }
+  .ca-bad {
+    background: var(--cc-bad);
+  }
+  .ca-warn {
+    background: var(--cc-warn);
+  }
+  .ca-good {
+    background: var(--cc-good);
+  }
+  .ca-faint {
+    background: var(--cc-ink-2);
+    opacity: 0.35;
+  }
+  .ca-hollow {
+    background: transparent;
+    border: 1.5px solid var(--cc-ink-3);
+  }
+  .ca-warn-outline {
+    border-color: var(--cc-warn);
+  }
+
+  // Labelled scale bars.
+  .ca-bars {
+    display: grid;
+    gap: 12px;
+  }
+
+  .ca-brow {
+    display: grid;
+    grid-template-columns: minmax(130px, 210px) minmax(0, 1fr);
+    gap: 14px;
+    align-items: center;
+
+    @media (max-width: 600px) {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 4px;
+    }
+  }
+
+  .ca-blab {
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.25;
+
+    small {
+      display: block;
+      font-weight: 400;
+      font-size: 12px;
+      color: var(--cc-ink-3);
+    }
+  }
+
+  .ca-track {
+    display: flex;
+    gap: 2px;
+    height: 26px;
+    border-radius: 4px;
+    overflow: hidden;
+    min-width: 0;
+  }
+
+  .ca-seg {
+    display: flex;
+    align-items: center;
+    min-width: 2px;
+    overflow: hidden;
+
+    span {
+      padding-left: 8px;
+      font-size: 12.5px;
+      font-weight: 600;
+      white-space: nowrap;
+      color: #fff;
+      font-variant-numeric: tabular-nums;
+    }
+
+    &.ca-c span {
+      color: var(--cc-on-canonn);
+    }
+    &.ca-u span,
+    &.ca-hatch span,
+    &.ca-empty span,
+    &.ca-none span,
+    &.ca-o3 span {
+      color: var(--cc-ink-2);
+    }
+  }
+
+  .ca-hatch {
+    background: #262d36
+      repeating-linear-gradient(135deg, transparent 0 4px, rgba(255, 255, 255, 0.08) 4px 6px);
+  }
+
+  .ca-empty {
+    background: #1f252d;
+  }
+  .ca-clear {
+    background: transparent;
+  }
+
+  // Chips and controls.
+  .ca-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+
+    &.ca-chips-tight {
+      margin-top: 12px;
+    }
+  }
+
+  .ca-chip {
+    font-family: var(--cc-f-mono);
+    font-size: 12px;
+    padding: 4px 9px;
+    border: 1px solid var(--cc-rule);
+    border-radius: 3px;
+    background: var(--cc-panel);
+    color: var(--cc-ink);
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .ca-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 16px;
+  }
+
+  .ca-seg-ctl {
+    display: inline-flex;
+    flex-wrap: wrap;
+    border: 1px solid var(--cc-rule);
+    border-radius: 6px;
+    overflow: hidden;
+
+    button {
+      font: inherit;
+      font-size: 13px;
+      padding: 6px 12px;
+      border: 0;
+      border-right: 1px solid var(--cc-rule);
+      background: var(--cc-panel);
+      color: var(--cc-ink-2);
+      cursor: pointer;
+
+      &:last-child {
+        border-right: 0;
+      }
+
+      &[aria-pressed='true'] {
+        background: var(--cc-ink);
+        color: var(--cc-panel);
+      }
+    }
+  }
+
+  .ca-btn {
+    align-self: flex-start;
+    font: inherit;
+    font-size: 13px;
+    padding: 6px 14px;
+    border: 1px solid var(--cc-rule);
+    border-radius: 6px;
+    background: var(--cc-panel);
+    color: var(--cc-ink);
+    cursor: pointer;
+
+    &:hover {
+      border-color: var(--cc-ink-3);
+    }
+  }
+
+  button:focus-visible,
+  a:focus-visible {
+    outline: 2px solid var(--cc-canonn);
+    outline-offset: 2px;
+  }
+
+  // Tables.
+  .ca-table-wrap {
+    overflow-x: auto;
+
+    &.ca-scroll {
+      max-height: 560px;
+      overflow-y: auto;
+    }
+  }
+
+  .ca-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13.5px;
+    min-width: 520px;
+
+    th,
+    td {
+      text-align: left;
+      padding: 7px 12px;
+      border-bottom: 1px solid var(--cc-rule);
+      vertical-align: top;
+    }
+
+    th {
+      font-family: var(--cc-f-mono);
+      font-weight: 500;
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--cc-ink-3);
+      position: sticky;
+      top: 0;
+      background: var(--cc-panel);
+    }
+
+    .ca-n {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+
+    a {
+      color: var(--cc-ink);
+      text-decoration: underline;
+      text-decoration-color: var(--cc-canonn);
+      text-underline-offset: 2px;
+    }
+  }
+
+  .ca-flag {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    padding: 1px 6px;
+    border-radius: 3px;
+    border: 1px solid var(--cc-canonn);
+    color: var(--cc-canonn);
+    margin-left: 6px;
+
+    &.ca-flag-warn {
+      border-color: var(--cc-warn);
+      color: var(--cc-warn);
+      margin-left: 0;
+    }
+  }
+
+  .ca-ok {
+    color: var(--cc-good);
+  }
+
+  // Two figures side by side on wide screens.
+  .ca-split {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+    gap: 12px;
+
+    > * {
+      min-width: 0;
+    }
+  }
+
+  // Sparklines.
+  .ca-sparks {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 10px 14px;
+  }
+
+  .ca-spark-name {
+    font-family: var(--cc-f-mono);
+    font-size: 11px;
+    color: var(--cc-ink-2);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  // Canonn-named stations.
+  .ca-wall {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .ca-st {
+    background: var(--cc-panel);
+    border: 1px solid var(--cc-rule);
+    padding: 8px 11px;
+    border-radius: 4px;
+    display: grid;
+    gap: 1px;
+    max-width: 100%;
+
+    b {
+      font-family: var(--cc-f-display);
+      font-weight: 800;
+      font-size: 19px;
+      line-height: 1.05;
+      text-transform: uppercase;
+      letter-spacing: 0.01em;
+    }
+
+    span {
+      font-size: 12px;
+      color: var(--cc-ink-3);
+    }
+
+    &.ca-st-C {
+      border-left: 5px solid var(--cc-canonn);
+    }
+    &.ca-st-D {
+      border-left: 5px solid var(--cc-cdsr);
+    }
+    &.ca-st-O {
+      border: 2px solid var(--cc-warn);
+    }
+    &.ca-st-B {
+      border-style: dashed;
+      opacity: 0.62;
+    }
+  }
+
+  // d3-drawn text.
+  svg text {
+    fill: var(--cc-ink-2);
+    font-family: var(--cc-f-body);
+  }
+  .ca-axis {
+    font-family: var(--cc-f-mono);
+    font-size: 11px;
+    fill: var(--cc-ink-3);
+  }
+  .ca-label {
+    font-size: 12.5px;
+    fill: var(--cc-ink-2);
+  }
+  .ca-strong {
+    font-weight: 600;
+    fill: var(--cc-ink);
+  }
+  .ca-row-label {
+    font-weight: 600;
+    font-size: 13px;
+    fill: var(--cc-ink);
+  }
+  .ca-pack-name {
+    font-weight: 600;
+    pointer-events: none;
+  }
+  .ca-pack-count {
+    opacity: 0.85;
+    pointer-events: none;
+  }
+
+  .ca-tip {
+    position: fixed;
+    z-index: 40;
+    pointer-events: none;
+    background: var(--cc-ink);
+    color: var(--cc-panel);
+    font-size: 12.5px;
+    line-height: 1.4;
+    padding: 7px 9px;
+    border-radius: 4px;
+    max-width: 280px;
+
+    b {
+      display: block;
+    }
+
+    &.ca-tip-hidden {
+      display: none;
+    }
+  }
+}

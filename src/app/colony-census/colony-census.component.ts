@@ -25,6 +25,8 @@ import {
   computeFactionNetwork,
 } from '../data/faction-network';
 import { LoadingTerminalComponent } from '../loading-terminal/loading-terminal.component';
+import { CensusAtlasComponent } from '../census-atlas/census-atlas.component';
+import { AtlasStats, computeAtlasStats } from '../data/atlas-stats';
 
 type LoadStatus = 'loading' | 'ready' | 'error';
 type RivalsUsFilter = 'all' | UsSide;
@@ -33,8 +35,8 @@ type RivalsSort = 'score' | 'conf' | 'lead';
 /** Where the station-family colour comes from in the template; kept here so the template stays declarative. */
 const STATION_FAMILY_COLOR: Record<string, string> = {
   Construction: 'var(--cc-s2)',
-  Outpost: 'var(--cc-s3)',
-  Surface: 'var(--cc-s1)',
+  Outpost: 'var(--cc-c2)',
+  Surface: 'var(--cc-c4)',
   Starport: 'var(--cc-s7)',
   Other: 'var(--cc-s0)',
   Unknown: 'var(--cc-s0)',
@@ -134,7 +136,7 @@ type FNAdjEntry = [FNNode, number, FNLink];
  */
 @Component({
   selector: 'app-colony-census',
-  imports: [LoadingTerminalComponent],
+  imports: [LoadingTerminalComponent, CensusAtlasComponent],
   templateUrl: './colony-census.component.html',
   styleUrl: './colony-census.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -160,6 +162,18 @@ export class ColonyCensusComponent implements OnInit, OnDestroy {
     y: 0,
     html: '',
   });
+
+  /** The story-style "atlas" plates' aggregates, from the same rows. */
+  protected readonly atlas = computed((): AtlasStats | null => (this.rows().length ? computeAtlasStats(this.rows()) : null));
+  /** How often a recorded preference ended up in control, across every preferred faction. */
+  protected readonly preferenceHit = computed(() => {
+    const prefs = this.stats()?.preferred ?? [];
+    const got = prefs.reduce((sum, p) => sum + p.got, 0);
+    const all = prefs.reduce((sum, p) => sum + p.got + p.miss, 0);
+    return this.pct(got, all);
+  });
+  /** Low-influence Canonn/CDSR systems with enough factions for a retreat to be possible. */
+  protected readonly retreatPossible = computed(() => this.atlas()?.lowInfluence.filter(l => l.retreatPossible).length ?? 0);
 
   // ---- Architects --------------------------------------------------------------------------
   protected readonly architectQuery = signal('');
@@ -516,7 +530,7 @@ export class ColonyCensusComponent implements OnInit, OnDestroy {
     svg.selectAll('*').remove();
     const W = 900;
     const H = 300;
-    const m = { l: 44, r: 14, t: 16, b: 34 };
+    const m = { l: 44, r: 14, t: 30, b: 34 };
     svg.attr('viewBox', `0 0 ${W} ${H}`);
     const bins = s.influenceBins;
     const x = d3.scaleBand(bins.map(b => b.bucket), [m.l, W - m.r]).padding(0.12);
@@ -554,6 +568,34 @@ export class ColonyCensusComponent implements OnInit, OnDestroy {
       )
       .on('pointermove', (event: PointerEvent) => this.moveTip(event))
       .on('pointerleave', () => this.hideTip());
+    // The BGS guide's fixed thresholds, as dashed reference lines.
+    const left = x(bins[0].bucket)!;
+    const right = x(bins[bins.length - 1].bucket)! + x.bandwidth();
+    const at = (pct: number) => left + (pct / 100) * (right - left);
+    const thresholds: [number, string][] = [
+      [2.5, 'retreat'],
+      [7, 'conflict'],
+      [60, 'coup'],
+      [75, 'expansion'],
+    ];
+    thresholds.forEach(([pct, label], i) => {
+      svg
+        .append('line')
+        .attr('x1', at(pct))
+        .attr('x2', at(pct))
+        .attr('y1', m.t)
+        .attr('y2', H - m.b)
+        .attr('stroke', this.cssVar('--cc-ink-3'))
+        .attr('stroke-dasharray', '3 4')
+        .attr('pointer-events', 'none');
+      svg
+        .append('text')
+        .attr('x', at(pct) + 4)
+        .attr('y', m.t + 10 + (i === 1 ? 14 : 0))
+        .attr('class', 'cc-axis-text')
+        .attr('pointer-events', 'none')
+        .text(`${label} ${pct}%`);
+    });
     svg
       .append('g')
       .selectAll('text')
@@ -728,7 +770,7 @@ export class ColonyCensusComponent implements OnInit, OnDestroy {
       .attr('cx', r => x(r.x))
       .attr('cy', r => z(r.z))
       .attr('r', 3.5)
-      .attr('fill', this.cssVar('--cc-s2'))
+      .attr('fill', this.cssVar('--cc-s1'))
       .attr('stroke', this.cssVar('--cc-panel'))
       .attr('stroke-width', 1)
       .on('pointerenter', (event: PointerEvent, r) =>
@@ -828,7 +870,7 @@ export class ColonyCensusComponent implements OnInit, OnDestroy {
       .attr('cx', p => x(Math.max(10, p.distanceLy)))
       .attr('cy', p => jitterY(p))
       .attr('r', 2.6)
-      .attr('fill', p => this.cssVar(p.hasArchitect ? '--cc-s2' : '--cc-s1'))
+      .attr('fill', p => this.cssVar(p.hasArchitect ? '--cc-s1' : '--cc-s2'))
       .attr('fill-opacity', 0.7)
       .attr('stroke', this.cssVar('--cc-panel'))
       .attr('stroke-width', 0.6);

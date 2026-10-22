@@ -52,126 +52,30 @@
     }
     @case ('ready') {
       @if (stats(); as s) {
+        @if (atlas(); as a) {
         <div class="cc-cols">
-        @if (section() === 'factions') {
-          <section class="cc-wide" style="order: 1" aria-labelledby="cc-foot-h">
-            <div class="cc-plate-head"><span class="cc-tag">Footprint</span><h2 id="cc-foot-h">Where Canonn and CDSR stand</h2></div>
-            @if (footprintCards(); as f) {
-              <div class="cc-foot-cards">
-                <div class="cc-fcard">
-                  <div class="cc-who"><span class="cc-sw cc-s1"></span>Canonn</div>
-                  <div class="cc-nums"><b>{{ fmt(f.canonnControl) }}</b><span>controlled of {{ fmt(f.canonnPresent) }} present</span></div>
-                  <div class="cc-meter"><i [style.width]="pct(f.canonnControl, f.canonnPresent)" style="background: var(--cc-s1)"></i></div>
-                </div>
-                <div class="cc-fcard">
-                  <div class="cc-who"><span class="cc-sw cc-s3"></span>Canonn Deep Space Research</div>
-                  <div class="cc-nums"><b>{{ fmt(f.cdsrControl) }}</b><span>controlled of {{ fmt(f.cdsrPresent) }} present</span></div>
-                  <div class="cc-meter"><i [style.width]="pct(f.cdsrControl, f.cdsrPresent)" style="background: var(--cc-s3)"></i></div>
-                </div>
-                <div class="cc-fcard cc-total">
-                  <div class="cc-who">Combined, each system counted once</div>
-                  <div class="cc-nums"><b>{{ fmt(f.unionControl) }}</b><span>controlled of {{ fmt(f.union) }} present</span></div>
-                  <div class="cc-meter"><i [style.width]="pct(f.unionControl, f.union)" style="background: var(--cc-s1)"></i></div>
-                  <p class="cc-sub">
-                    Both are present together in <b>{{ fmt(f.both) }}</b> systems, so the combined total is
-                    {{ fmt(f.canonnPresent) }} + {{ fmt(f.cdsrPresent) }} − {{ fmt(f.both) }} = <b>{{ fmt(f.union) }}</b>.
-                  </p>
-                </div>
-              </div>
-            }
-            <div class="cc-plate cc-foot-strip-wrap">
-              <div class="cc-mini-head">All {{ fmt(footprintTotal()) }} systems by who is present, and who controls them</div>
-              <svg #footSvg class="cc-foot-strip" role="img" aria-label="Systems by presence and controller"></svg>
-              <div class="cc-legend cc-foot-leg">
-                <span><span class="cc-sw cc-s1"></span>Canonn controls</span>
-                <span><span class="cc-sw cc-s3"></span>CDSR controls</span>
-                <span><span class="cc-sw" style="background: var(--cc-s0)"></span>Another faction controls</span>
-              </div>
-            </div>
-          </section>
-        }
-
-        @if (section() === 'factions') {
-          <section class="cc-wide" style="order: 2" aria-labelledby="cc-riv-h">
-            <div class="cc-plate-head"><span class="cc-tag">Rivals</span><h2 id="cc-riv-h">Who pushes back hardest</h2></div>
-            <p class="cc-note">
-              {{ fmt(openConflicts()) }} open wars or elections right now involve Canonn or CDSR against another
-              faction. Friction also counts systems where a faction out-influences us, and systems within 5 points of
-              doing so.
-            </p>
-            <div class="cc-ctlrow">
-              <div class="cc-seg-ctl" role="group" aria-label="Whose rivals">
-                <button type="button" [attr.aria-pressed]="rivalsUsFilter() === 'all'" (click)="rivalsUsFilter.set('all')">Canonn + CDSR</button>
-                <button type="button" [attr.aria-pressed]="rivalsUsFilter() === 'C'" (click)="rivalsUsFilter.set('C')">Canonn</button>
-                <button type="button" [attr.aria-pressed]="rivalsUsFilter() === 'D'" (click)="rivalsUsFilter.set('D')">CDSR</button>
-              </div>
-              <div class="cc-seg-ctl" role="group" aria-label="Rank by">
-                <button type="button" [attr.aria-pressed]="rivalsSort() === 'score'" (click)="rivalsSort.set('score')">Overall friction</button>
-                <button type="button" [attr.aria-pressed]="rivalsSort() === 'conf'" (click)="rivalsSort.set('conf')">Conflicts</button>
-                <button type="button" [attr.aria-pressed]="rivalsSort() === 'lead'" (click)="rivalsSort.set('lead')">Ahead of us</button>
-              </div>
-            </div>
-            <div class="cc-legend">
-              <span><span class="cc-icon-triangle"></span>War or election open now</span>
-              <span><span class="cc-icon-circle"></span>About to start</span>
-              <span><span class="cc-sw" style="background: var(--cc-s2); border-radius: 2px"></span>Systems where they out-influence us</span>
-              <span><span class="cc-sw" style="background: var(--cc-s4); border-radius: 2px"></span>Within 5 points behind us</span>
-            </div>
-            <div class="cc-plate">
-              <div class="cc-riv-scroll">
-                <svg #rivSvg role="img" aria-label="Rival factions linked to Canonn and CDSR"></svg>
-              </div>
-              <div class="cc-hint"><span>Hover a rival to trace its links · click for the systems involved</span><span>Line width = friction with that faction</span></div>
-            </div>
-            @if (selectedRivalDetail(); as r) {
-              <div class="cc-plate cc-riv-detail" aria-live="polite">
-                <h3>{{ r.faction }}</h3>
-                <div class="cc-riv-cols">
-                  <div>
-                    <h4>Conflicts ({{ r.conflicts.length }})</h4>
-                    @if (r.conflicts.length) {
-                      <ul>
-                        @for (c of r.conflicts; track c.systemName + c.state) {
-                          <li><span>{{ c.systemName }} · {{ c.state }} vs {{ c.us === 'C' ? 'Canonn' : 'CDSR' }}</span><span>{{ c.status === 'active' ? 'open now' : 'pending' }}</span></li>
-                        }
-                      </ul>
-                    } @else {
-                      <div class="cc-note-sm">None</div>
-                    }
-                  </div>
-                  <div>
-                    <h4>They lead us ({{ r.lead.length }})</h4>
-                    @if (r.lead.length) {
-                      <ul>
-                        @for (l of r.lead; track l.systemName) {
-                          <li><span>{{ l.systemName }} · {{ l.us === 'C' ? 'Canonn' : 'CDSR' }}</span><span>+{{ l.marginPoints.toFixed(0) }} pts</span></li>
-                        }
-                      </ul>
-                    } @else {
-                      <div class="cc-note-sm">None</div>
-                    }
-                  </div>
-                  <div>
-                    <h4>Close behind us ({{ r.close.length }})</h4>
-                    @if (r.close.length) {
-                      <ul>
-                        @for (c of r.close; track c.systemName) {
-                          <li><span>{{ c.systemName }} · {{ c.us === 'C' ? 'Canonn' : 'CDSR' }}</span><span>{{ c.marginPoints.toFixed(0) }} pts</span></li>
-                        }
-                      </ul>
-                    } @else {
-                      <div class="cc-note-sm">None</div>
-                    }
-                  </div>
-                </div>
-              </div>
-            }
-          </section>
-        }
-
         @if (section() === 'architects') {
-          <section class="cc-wide" style="order: 1" aria-labelledby="cc-arch-h">
-            <div class="cc-plate-head"><h2 id="cc-arch-h">The architects</h2></div>
+
+          <section class="cc-wide" aria-labelledby="cc-afoot-h">
+            <div class="cc-plate-head"><span class="cc-tag">Footprint</span><h2 id="cc-afoot-h">{{ fmt(s.totalSystems) }} systems. {{ fmt(a.prefCounts.C) }} prefer Canonn.</h2></div>
+            <p class="cc-dek">Each square is a system where Canonn or Canonn Deep Space Research has a presence, grouped by the faction its architect prefers. Most are systems where we are simply present: {{ pct(a.prefCounts.U, s.totalSystems) }} have no preferred faction recorded.</p>
+            <app-census-atlas plate="footprint" [stats]="a"></app-census-atlas>
+          </section>
+
+          <section class="cc-wide" aria-labelledby="cc-rec-h">
+            <div class="cc-plate-head"><span class="cc-tag">Architect records</span><h2 id="cc-rec-h">{{ fmt(a.withRecord) }} systems have an architect on record. {{ fmt(s.totalSystems - a.withRecord) }} to go.</h2></div>
+            <p class="cc-dek">A preferred faction can only be recorded once the architect is, so every Canonn- and CDSR-preferred system already has a record; for some it says "not a colony", an older system with no player builder. The gap is the systems where we are present but nobody has recorded who built them.</p>
+            <app-census-atlas plate="records" [stats]="a"></app-census-atlas>
+          </section>
+
+          <section class="cc-wide" aria-labelledby="cc-recon-h">
+            <div class="cc-plate-head"><span class="cc-tag">Architect recon</span><h2 id="cc-recon-h">{{ fmt(a.recon.length) }} untouched colonies might have a Canonn architect</h2></div>
+            <p class="cc-dek">These systems have no architect record, and Canonn or CDSR sits third on about 13% with the leader near 60%: the split a new four-faction colony starts with, apparently untouched since founding. Visit one, read the station news for a Canonn faction helping to found it, and record the architect.</p>
+            <app-census-atlas plate="recon" [stats]="a"></app-census-atlas>
+          </section>
+
+          <section class="cc-wide" aria-labelledby="cc-arch-h">
+            <div class="cc-plate-head"><span class="cc-tag">The architects</span><h2 id="cc-arch-h">{{ fmt(s.architects.length) }} architects. The busiest has built {{ s.architects[0]?.count ?? 0 }} systems.</h2></div>
             <p class="cc-note">
               {{ fmt(s.architects.length) }} commanders have built the {{ fmt(s.colonies) }} colonies on record right now.
               Pick one to see their systems.
@@ -254,11 +158,15 @@
               <svg #archDistSvg role="img" aria-label="Distribution of systems per architect"></svg>
             </div>
           </section>
-        }
 
-        @if (section() === 'architects') {
-          <section class="cc-half" style="order: 2" aria-labelledby="cc-pref-h">
-            <div class="cc-plate-head"><h2 id="cc-pref-h">Did the architect get the faction they asked for?</h2></div>
+          <section class="cc-wide" aria-labelledby="cc-build-h">
+            <div class="cc-plate-head"><span class="cc-tag">Builders</span><h2 id="cc-build-h">{{ fmt(singleSystemArchitects()) }} of {{ fmt(s.architects.length) }} architects built a single system</h2></div>
+            <p class="cc-dek">Every architect as a bubble, sized by the systems they built and coloured by the faction most of those systems prefer.</p>
+            <app-census-atlas plate="builders" [stats]="a"></app-census-atlas>
+          </section>
+
+          <section class="cc-wide" aria-labelledby="cc-pref-h">
+            <div class="cc-plate-head"><span class="cc-tag">Preferences</span><h2 id="cc-pref-h">Architects got the faction they asked for in {{ preferenceHit() }} of systems</h2></div>
             <p class="cc-note">
               Of systems with a recorded architect preference, how often that faction ended up in control versus lost
               to someone else.
@@ -285,30 +193,9 @@
               }
             </div>
           </section>
-        }
 
-        @if (section() === 'architects') {
-          <section class="cc-half" style="order: 4" aria-labelledby="cc-pop-h">
-            <div class="cc-plate-head"><h2 id="cc-pop-h">Population by distance from Sol</h2></div>
-            <p class="cc-note">Each dot is a system. Both axes are logarithmic: each gridline is ten times the last.</p>
-            <div class="cc-legend">
-              <button type="button" class="cc-leg-btn" [attr.aria-pressed]="popShowColonies()" (click)="togglePopGroup('colonies')">
-                <span class="cc-sw" style="background: var(--cc-s2)"></span>Colonised by a player architect
-              </button>
-              <button type="button" class="cc-leg-btn" [attr.aria-pressed]="popShowOthers()" (click)="togglePopGroup('others')">
-                <span class="cc-sw" style="background: var(--cc-s1)"></span>No architect recorded
-              </button>
-            </div>
-            <div class="cc-plate">
-              <svg #popSvg class="cc-pop-svg" role="img" aria-label="Scatter of population against distance from Sol"></svg>
-              <div class="cc-hint"><span>Hover a dot for the system · click a legend item to hide a group</span><span>Systems with zero population sit on the bottom line</span></div>
-            </div>
-          </section>
-        }
-
-        @if (section() === 'architects') {
-          <section class="cc-half" style="order: 3" aria-labelledby="cc-station-h">
-            <div class="cc-plate-head"><h2 id="cc-station-h">What's being built</h2></div>
+          <section class="cc-wide" aria-labelledby="cc-station-h">
+            <div class="cc-plate-head"><span class="cc-tag">Construction</span><h2 id="cc-station-h">{{ fmt(s.totalStations) }} stations, and {{ fmt(s.depotCount) }} still being built</h2></div>
             <p class="cc-note">
               {{ fmt(s.totalStations) }} stations are listed across these systems; {{ fmt(s.depotCount) }} of them
               ({{ pct(s.depotCount, s.totalStations) }}) are still under construction.
@@ -325,12 +212,79 @@
               }
             </div>
           </section>
-        }
 
-        @if (section() === 'factions') {
-          <section class="cc-half" style="order: 3" aria-labelledby="cc-inf-h">
-            <div class="cc-plate-head"><h2 id="cc-inf-h">How strong is Canonn where it's present?</h2></div>
-            <p class="cc-note">Canonn's influence in every system where it has a presence, in 5-point bands.</p>
+          <section class="cc-wide" aria-labelledby="cc-pop-h">
+            <div class="cc-plate-head"><span class="cc-tag">Population</span><h2 id="cc-pop-h">Population by distance from Sol</h2></div>
+            <p class="cc-note">Each dot is a system. Both axes are logarithmic: each gridline is ten times the last.</p>
+            <div class="cc-legend">
+              <button type="button" class="cc-leg-btn" [attr.aria-pressed]="popShowColonies()" (click)="togglePopGroup('colonies')">
+                <span class="cc-sw" style="background: var(--cc-s1)"></span>Colonised by a player architect
+              </button>
+              <button type="button" class="cc-leg-btn" [attr.aria-pressed]="popShowOthers()" (click)="togglePopGroup('others')">
+                <span class="cc-sw" style="background: var(--cc-s2)"></span>No architect recorded
+              </button>
+            </div>
+            <div class="cc-plate">
+              <svg #popSvg class="cc-pop-svg" role="img" aria-label="Scatter of population against distance from Sol"></svg>
+              <div class="cc-hint"><span>Hover a dot for the system · click a legend item to hide a group</span><span>Systems with zero population sit on the bottom line</span></div>
+            </div>
+          </section>
+
+          <section class="cc-wide" aria-labelledby="cc-fresh-h">
+            <div class="cc-plate-head"><span class="cc-tag">Freshness</span><h2 id="cc-fresh-h">{{ round(a.stale.share * 100) }}% of our picture is more than a month old</h2></div>
+            <p class="cc-note">Time since the BGS tracker last saw each system — influence moves daily, so treat an old reading as a last-known position. Flying through a system and docking refreshes it for everyone.</p>
+            <div class="cc-plate">
+              <svg #ageSvg role="img" aria-label="Systems by time since last update"></svg>
+            </div>
+          </section>
+
+        } @else {
+
+          <section class="cc-wide" aria-labelledby="cc-foot-h">
+            <div class="cc-plate-head"><span class="cc-tag">Footprint</span><h2 id="cc-foot-h">@if (footprintCards(); as f) {We run {{ fmt(f.unionControl) }} of the {{ fmt(f.union) }} systems we are in} @else {Where Canonn and CDSR stand}</h2></div>
+            @if (footprintCards(); as f) {
+              <div class="cc-foot-cards">
+                <div class="cc-fcard">
+                  <div class="cc-who"><span class="cc-sw cc-s1"></span>Canonn</div>
+                  <div class="cc-nums"><b>{{ fmt(f.canonnControl) }}</b><span>controlled of {{ fmt(f.canonnPresent) }} present</span></div>
+                  <div class="cc-meter"><i [style.width]="pct(f.canonnControl, f.canonnPresent)" style="background: var(--cc-s1)"></i></div>
+                </div>
+                <div class="cc-fcard">
+                  <div class="cc-who"><span class="cc-sw cc-s3"></span>Canonn Deep Space Research</div>
+                  <div class="cc-nums"><b>{{ fmt(f.cdsrControl) }}</b><span>controlled of {{ fmt(f.cdsrPresent) }} present</span></div>
+                  <div class="cc-meter"><i [style.width]="pct(f.cdsrControl, f.cdsrPresent)" style="background: var(--cc-s3)"></i></div>
+                </div>
+                <div class="cc-fcard cc-total">
+                  <div class="cc-who">Combined, each system counted once</div>
+                  <div class="cc-nums"><b>{{ fmt(f.unionControl) }}</b><span>controlled of {{ fmt(f.union) }} present</span></div>
+                  <div class="cc-meter"><i [style.width]="pct(f.unionControl, f.union)" style="background: var(--cc-s1)"></i></div>
+                  <p class="cc-sub">
+                    Both are present together in <b>{{ fmt(f.both) }}</b> systems, so the combined total is
+                    {{ fmt(f.canonnPresent) }} + {{ fmt(f.cdsrPresent) }} − {{ fmt(f.both) }} = <b>{{ fmt(f.union) }}</b>.
+                  </p>
+                </div>
+              </div>
+            }
+            <div class="cc-plate cc-foot-strip-wrap">
+              <div class="cc-mini-head">All {{ fmt(footprintTotal()) }} systems by who is present, and who controls them</div>
+              <svg #footSvg class="cc-foot-strip" role="img" aria-label="Systems by presence and controller"></svg>
+              <div class="cc-legend cc-foot-leg">
+                <span><span class="cc-sw cc-s1"></span>Canonn controls</span>
+                <span><span class="cc-sw cc-s3"></span>CDSR controls</span>
+                <span><span class="cc-sw" style="background: var(--cc-s0)"></span>Another faction controls</span>
+              </div>
+            </div>
+          </section>
+
+          <section class="cc-wide" aria-labelledby="cc-ctl2-h">
+            <div class="cc-plate-head"><span class="cc-tag">Preferred vs in control</span><h2 id="cc-ctl2-h">We run {{ fmt(a.matrix.C.C) }} of our {{ fmt(a.prefCounts.C) }} Canonn-preferred systems</h2></div>
+            <p class="cc-dek">The preferred faction is not always the one in charge. Colonies start with several factions and neighbours expand in; that is the BGS doing its thing, not anyone working against us. Where another group's faction is preferred, it is their colony and we leave it be.</p>
+            <app-census-atlas plate="control" [stats]="a"></app-census-atlas>
+          </section>
+
+          <section class="cc-wide" aria-labelledby="cc-inf-h">
+            <div class="cc-plate-head"><span class="cc-tag">Influence</span><h2 id="cc-inf-h">Twin peaks: in charge, or along for the ride</h2></div>
+            <p class="cc-note">Canonn's influence in every system where it has a presence, in 5-point bands. Values bunch at 10–25%, where we are a minor partner, and 50–65%, where we run the system; spikes at exactly 60%, 20% and 13% are colonies untouched since founding. Dashed lines mark the BGS guide's thresholds.</p>
             <div class="cc-legend">
               <span><span class="cc-sw cc-s1"></span>Canonn controls</span>
               <span><span class="cc-sw" style="background: var(--cc-s2)"></span>Another faction controls</span>
@@ -340,22 +294,136 @@
               <div class="cc-hint"><span>Hover a bar for counts</span><span>5-point influence bands</span></div>
             </div>
           </section>
-        }
 
-        @if (section() === 'architects') {
-          <section class="cc-half" style="order: 5" aria-labelledby="cc-fresh-h">
-            <div class="cc-plate-head"><h2 id="cc-fresh-h">How fresh is the data?</h2></div>
-            <p class="cc-note">Time since the BGS tracker last saw each system — influence moves daily, so treat an old reading as a last-known position.</p>
-            <div class="cc-plate">
-              <svg #ageSvg role="img" aria-label="Systems by time since last update"></svg>
-            </div>
+          <section class="cc-wide" aria-labelledby="cc-margin-h">
+            <div class="cc-plate-head"><span class="cc-tag">Margin of control</span><h2 id="cc-margin-h">{{ fmt(a.homeBands.healthy) }} of {{ fmt(a.homeBands.total) }} home systems hold a healthy lead</h2></div>
+            <p class="cc-dek">Every system Canonn or CDSR runs, by its lead over the second faction. The BGS guide calls a 4.5% lead "close to conflict" and 15–20% "healthy". Home systems here are Canonn-preferred systems Canonn runs: {{ fmt(a.homeBands.middle) }} sit in the middle band and {{ fmt(a.homeBands.close) }} are close enough to need a boost.</p>
+            <app-census-atlas plate="margins" [stats]="a"></app-census-atlas>
           </section>
-        }
 
-        @if (section() === 'factions') {
+          <section class="cc-wide" aria-labelledby="cc-retreat-h">
+            <div class="cc-plate-head"><span class="cc-tag">Retreat watch</span><h2 id="cc-retreat-h">Only {{ fmt(retreatPossible()) }} low-influence systems could ever see a retreat</h2></div>
+            <p class="cc-dek">A faction only retreats when more than three factions are present, so in the {{ fmt(a.retreatProof) }} systems with three or fewer it cannot happen. Canonn or CDSR is under 5% in {{ fmt(a.lowInfluence.length) }} systems; the table shows which of them could retreat.</p>
+            <app-census-atlas plate="retreat" [stats]="a"></app-census-atlas>
+          </section>
+
+          <section class="cc-wide" aria-labelledby="cc-week-h">
+            <div class="cc-plate-head"><span class="cc-tag">This week</span><h2 id="cc-week-h">{{ pct(a.week.flat, a.week.withHistory) }} of systems barely moved this week</h2></div>
+            <p class="cc-dek">Of {{ fmt(a.week.withHistory) }} systems with at least five days of history, {{ fmt(a.week.flat) }} moved less than half a point in seven days. Daily swings of 1–3% are normal noise; a bigger move often comes from other factions' conflicts or trade passing through.</p>
+            <app-census-atlas plate="week" [stats]="a"></app-census-atlas>
+          </section>
+
+          <section class="cc-wide" aria-labelledby="cc-where-h">
+            <div class="cc-plate-head"><span class="cc-tag">Where we are</span><h2 id="cc-where-h">Canonn holds a tight bubble. CDSR roams the deep.</h2></div>
+            <p class="cc-dek">Systems on the galactic plane. Canonn-run systems sit a median {{ fmt(round(a.medianFromVarati.canonn ?? 0)) }} ly from Varati; CDSR-run systems a median {{ fmt(round(a.medianFromVarati.cdsr ?? 0)) }} ly.</p>
+            <app-census-atlas plate="map" [stats]="a"></app-census-atlas>
+          </section>
+
+          <section class="cc-wide" aria-labelledby="cc-riv-h">
+            <div class="cc-plate-head"><span class="cc-tag">Friction</span><h2 id="cc-riv-h">Who pushes back hardest</h2></div>
+            <p class="cc-note">
+              {{ fmt(openConflicts()) }} open wars or elections right now involve Canonn or CDSR against another
+              faction. Friction also counts systems where a faction out-influences us, and systems within 5 points of
+              doing so.
+            </p>
+            <div class="cc-ctlrow">
+              <div class="cc-seg-ctl" role="group" aria-label="Whose rivals">
+                <button type="button" [attr.aria-pressed]="rivalsUsFilter() === 'all'" (click)="rivalsUsFilter.set('all')">Canonn + CDSR</button>
+                <button type="button" [attr.aria-pressed]="rivalsUsFilter() === 'C'" (click)="rivalsUsFilter.set('C')">Canonn</button>
+                <button type="button" [attr.aria-pressed]="rivalsUsFilter() === 'D'" (click)="rivalsUsFilter.set('D')">CDSR</button>
+              </div>
+              <div class="cc-seg-ctl" role="group" aria-label="Rank by">
+                <button type="button" [attr.aria-pressed]="rivalsSort() === 'score'" (click)="rivalsSort.set('score')">Overall friction</button>
+                <button type="button" [attr.aria-pressed]="rivalsSort() === 'conf'" (click)="rivalsSort.set('conf')">Conflicts</button>
+                <button type="button" [attr.aria-pressed]="rivalsSort() === 'lead'" (click)="rivalsSort.set('lead')">Ahead of us</button>
+              </div>
+            </div>
+            <div class="cc-legend">
+              <span><span class="cc-icon-triangle"></span>War or election open now</span>
+              <span><span class="cc-icon-circle"></span>About to start</span>
+              <span><span class="cc-sw" style="background: var(--cc-s2); border-radius: 2px"></span>Systems where they out-influence us</span>
+              <span><span class="cc-sw" style="background: var(--cc-s4); border-radius: 2px"></span>Within 5 points behind us</span>
+            </div>
+            <div class="cc-plate">
+              <div class="cc-riv-scroll">
+                <svg #rivSvg role="img" aria-label="Rival factions linked to Canonn and CDSR"></svg>
+              </div>
+              <div class="cc-hint"><span>Hover a rival to trace its links · click for the systems involved</span><span>Line width = friction with that faction</span></div>
+            </div>
+            @if (selectedRivalDetail(); as r) {
+              <div class="cc-plate cc-riv-detail" aria-live="polite">
+                <h3>{{ r.faction }}</h3>
+                <div class="cc-riv-cols">
+                  <div>
+                    <h4>Conflicts ({{ r.conflicts.length }})</h4>
+                    @if (r.conflicts.length) {
+                      <ul>
+                        @for (c of r.conflicts; track c.systemName + c.state) {
+                          <li><span>{{ c.systemName }} · {{ c.state }} vs {{ c.us === 'C' ? 'Canonn' : 'CDSR' }}</span><span>{{ c.status === 'active' ? 'open now' : 'pending' }}</span></li>
+                        }
+                      </ul>
+                    } @else {
+                      <div class="cc-note-sm">None</div>
+                    }
+                  </div>
+                  <div>
+                    <h4>They lead us ({{ r.lead.length }})</h4>
+                    @if (r.lead.length) {
+                      <ul>
+                        @for (l of r.lead; track l.systemName) {
+                          <li><span>{{ l.systemName }} · {{ l.us === 'C' ? 'Canonn' : 'CDSR' }}</span><span>+{{ l.marginPoints.toFixed(0) }} pts</span></li>
+                        }
+                      </ul>
+                    } @else {
+                      <div class="cc-note-sm">None</div>
+                    }
+                  </div>
+                  <div>
+                    <h4>Close behind us ({{ r.close.length }})</h4>
+                    @if (r.close.length) {
+                      <ul>
+                        @for (c of r.close; track c.systemName) {
+                          <li><span>{{ c.systemName }} · {{ c.us === 'C' ? 'Canonn' : 'CDSR' }}</span><span>{{ c.marginPoints.toFixed(0) }} pts</span></li>
+                        }
+                      </ul>
+                    } @else {
+                      <div class="cc-note-sm">None</div>
+                    }
+                  </div>
+                </div>
+              </div>
+            }
+          </section>
+
+          <section class="cc-wide" aria-labelledby="cc-named-h">
+            <div class="cc-plate-head"><span class="cc-tag">Named for Canonn</span><h2 id="cc-named-h">{{ fmt(a.named.length) }} stations carry the Canonn name</h2></div>
+            <p class="cc-dek">Stations named after Canonn are always worth a mention in orders: we would really like Canonn to run every one of them.</p>
+            <app-census-atlas plate="named" [stats]="a"></app-census-atlas>
+          </section>
+
+          <section class="cc-wide" aria-labelledby="cc-nb-h">
+            <div class="cc-plate-head"><span class="cc-tag">Neighbours and powers</span><h2 id="cc-nb-h">Our most common neighbour shares {{ fmt(a.neighbours[0]?.systems ?? 0) }} systems with us</h2></div>
+            <p class="cc-dek">{{ a.neighbours[0]?.faction }} turns up alongside Canonn or CDSR more than any other faction. In Powerplay, {{ fmt(a.inPowerSpace) }} of the systems we run sit inside a power's territory.</p>
+            <app-census-atlas plate="neighbours" [stats]="a"></app-census-atlas>
+          </section>
           @if (factionNetwork(); as net) {
-            <section class="cc-wide" style="order: 5" aria-labelledby="cc-web-h">
-              <div class="cc-plate-head"><h2 id="cc-web-h">The faction web</h2></div>
+
+          <section class="cc-wide" aria-labelledby="cc-ctrl-h">
+            <div class="cc-plate-head"><span class="cc-tag">Controllers</span><h2 id="cc-ctrl-h">Who controls the systems Canonn shares</h2></div>
+              <p class="cc-note">Among systems where Canonn has any presence, the factions most often holding control instead.</p>
+              <div class="cc-plate cc-bars">
+                @for (c of net.controllers; track c.faction) {
+                  <div class="cc-bar" [title]="c.faction + ': ' + fmt(c.count)">
+                    <span class="cc-nm">{{ c.faction }}</span>
+                    <span class="cc-tr"><span class="cc-fl" [style.width.%]="(c.count / net.controllers[0].count) * 100" style="background: var(--cc-s2)"></span></span>
+                    <span class="cc-v">{{ fmt(c.count) }}</span>
+                  </div>
+                }
+              </div>
+          </section>
+
+          <section class="cc-wide" aria-labelledby="cc-web-h">
+            <div class="cc-plate-head"><span class="cc-tag">Faction web</span><h2 id="cc-web-h">The faction web</h2></div>
               <p class="cc-note">
                 Each dot is a minor faction present in at least 15 systems. A line joins two factions that share
                 systems far more often than chance alone would predict. Colours are automatically detected clusters
@@ -374,10 +442,10 @@
                 <svg #webSvg class="cc-web-svg" role="img" aria-label="Force-directed network of widely-present factions"></svg>
                 <div class="cc-hint"><span>Drag a dot to reposition it · hover to trace its links · click a dot or legend entry to highlight its cluster</span><span>{{ fmt(net.stats.webNodes) }} factions · {{ fmt(net.stats.webLinks) }} links</span></div>
               </div>
-            </section>
+          </section>
 
-            <section class="cc-wide" style="order: 6" aria-labelledby="cc-full-h">
-              <div class="cc-plate-head"><h2 id="cc-full-h">Every connection</h2></div>
+          <section class="cc-wide" aria-labelledby="cc-full-h">
+            <div class="cc-plate-head"><span class="cc-tag">Every connection</span><h2 id="cc-full-h">Every connection</h2></div>
               <p class="cc-note">
                 The same idea with nothing filtered: every faction with any presence at all, and every pair that
                 shares at least one system ({{ fmt(net.stats.factions) }} factions, {{ fmt(net.stats.pairs) }} pairs).
@@ -406,10 +474,10 @@
                 </div>
                 <div class="cc-hint"><span>Scroll/pinch to zoom · drag to pan · hover a dot for detail</span><span>Orange = Canonn / CDSR hub links</span></div>
               </div>
-            </section>
+          </section>
 
-            <section class="cc-half" style="order: 7" aria-labelledby="cc-chord-h">
-              <div class="cc-plate-head"><h2 id="cc-chord-h">Who shares space with whom</h2></div>
+          <section class="cc-wide" aria-labelledby="cc-chord-h">
+            <div class="cc-plate-head"><span class="cc-tag">Shared space</span><h2 id="cc-chord-h">Who shares space with whom</h2></div>
               <p class="cc-note">
                 The {{ net.chord.names.length }} most widespread factions (Canonn and CDSR aside), arranged in a circle.
                 A ribbon's width is the number of systems the two factions both appear in.
@@ -417,10 +485,10 @@
               <div class="cc-plate cc-chord-wrap">
                 <svg #chordSvg class="cc-chord-svg" role="img" aria-label="Chord diagram of shared systems between the most widespread factions"></svg>
               </div>
-            </section>
+          </section>
 
-            <section class="cc-half" style="order: 8" aria-labelledby="cc-map-h">
-              <div class="cc-plate-head"><h2 id="cc-map-h">The clusters on the galactic plane</h2></div>
+          <section class="cc-wide" aria-labelledby="cc-map-h">
+            <div class="cc-plate-head"><span class="cc-tag">Clusters</span><h2 id="cc-map-h">The clusters on the galactic plane</h2></div>
               <p class="cc-note">
                 Every system in the feed, coloured by the cluster of its strongest non-Canonn/CDSR faction. Brighter
                 dots are systems where Canonn itself has a presence.
@@ -440,24 +508,12 @@
                 </div>
                 <div class="cc-hint"><span>Scroll/pinch to zoom · drag to pan · hover a dot for the system</span><span>Ring = Sol</span></div>
               </div>
-            </section>
-
-            <section class="cc-half" style="order: 4" aria-labelledby="cc-ctrl-h">
-              <div class="cc-plate-head"><h2 id="cc-ctrl-h">Who controls the systems Canonn shares</h2></div>
-              <p class="cc-note">Among systems where Canonn has any presence, the factions most often holding control instead.</p>
-              <div class="cc-plate cc-bars">
-                @for (c of net.controllers; track c.faction) {
-                  <div class="cc-bar" [title]="c.faction + ': ' + fmt(c.count)">
-                    <span class="cc-nm">{{ c.faction }}</span>
-                    <span class="cc-tr"><span class="cc-fl" [style.width.%]="(c.count / net.controllers[0].count) * 100" style="background: var(--cc-s2)"></span></span>
-                    <span class="cc-v">{{ fmt(c.count) }}</span>
-                  </div>
-                }
-              </div>
-            </section>
+          </section>
           }
+
         }
         </div>
+        }
       }
     }
   }
