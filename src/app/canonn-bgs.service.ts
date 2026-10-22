@@ -326,6 +326,8 @@ export interface BgsRow {
   architect: string | null;
   /** Recorded as "Nobody — the system is not a colony": shown blank rather than offering Assign again. */
   notAColony: boolean;
+  /** The registry's raw affiliation answer (one of the `AFFILIATION_*` values), or null if none is recorded — read by the atlas plates. */
+  architectAffiliation?: string | null;
   /**
    * The faction this system should be worked for: the Architect Registry's Preferred Faction
    * if one is recorded; otherwise, when the system has a station with "canonn" in its name,
@@ -432,6 +434,7 @@ export function rowWithAssignment(row: BgsRow, submission: AssignmentAnswers): B
     ...row,
     architect: submission.architect || null,
     notAColony: submission.affiliation === AFFILIATION_NOT_A_COLONY,
+    architectAffiliation: submission.affiliation || null,
     preferredFaction: recorded ?? derivePreferredFaction(row),
     preferredFactionRecorded: recorded !== null,
   };
@@ -1117,6 +1120,7 @@ export class CanonnBgsService {
       // A placeholder ("N/A", "Don't know"…) is no answer, the same as a blank cell.
       architect: cleanCell(info?.architect, placeholders) || null,
       notAColony: info?.affiliation === AFFILIATION_NOT_A_COLONY,
+      architectAffiliation: info?.affiliation?.trim() || null,
       preferredFaction: recordedPreference ?? derivePreferredFaction({ hasCanonnStation, canonnInfluence, cdsrInfluence }),
       preferredFactionRecorded: recordedPreference !== null,
       hasCanonnStation,

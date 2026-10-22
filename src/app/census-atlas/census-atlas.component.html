@@ -1,0 +1,475 @@
+@let s = stats();
+@switch (plate()) {
+  @case ('footprint') {
+    <div class="ca-legend">
+      <span><i class="ca-sw ca-c"></i>Prefers Canonn · {{ fmt(s.prefCounts.C) }}</span>
+      <span><i class="ca-sw ca-d"></i>Prefers CDSR · {{ fmt(s.prefCounts.D) }}</span>
+      <span><i class="ca-sw ca-o"></i>Prefers another faction · {{ fmt(s.prefCounts.O) }}</span>
+      <span><i class="ca-sw ca-u"></i>No preference recorded · {{ fmt(s.prefCounts.U) }}</span>
+      <span><i class="ca-sw ca-faint"></i>Recorded as not a colony</span>
+      <span><i class="ca-sw ca-hollow"></i>No architect record yet</span>
+    </div>
+    <div class="ca-panel">
+      <canvas
+        #grid
+        class="ca-grid"
+        role="img"
+        aria-label="One square per system, grouped by preferred faction"
+        (pointermove)="onGridMove($event)"
+        (pointerleave)="hideTip()"
+      ></canvas>
+      <div class="ca-hint">
+        <span>One square per system · solid = architect on record</span
+        ><span>Hover a square for the system</span>
+      </div>
+    </div>
+  }
+
+  @case ('records') {
+    <div class="ca-panel ca-pad ca-bars">
+      @for (c of coverageRows(); track c.group) {
+        <div class="ca-brow">
+          <div class="ca-blab">
+            {{ prefLabel[c.group]
+            }}<small
+              >{{ fmt(c.total) }} systems · {{ pct(c.named + c.notColony, c.total) }} with a
+              record</small
+            >
+          </div>
+          <div class="ca-track">
+            @if (c.named) {
+              <div
+                [class]="'ca-seg ca-' + c.group.toLowerCase()"
+                [style.flex]="flexOf(c.named)"
+                [title]="fmt(c.named) + ' named'"
+              >
+                @if (c.named / c.total > 0.12) {
+                  <span>{{ fmt(c.named) }} named</span>
+                }
+              </div>
+            }
+            @if (c.notColony) {
+              <div
+                class="ca-seg ca-hatch"
+                [style.flex]="flexOf(c.notColony)"
+                [title]="fmt(c.notColony) + ' not a colony'"
+              >
+                @if (c.notColony / c.total > 0.12) {
+                  <span>{{ fmt(c.notColony) }} not a colony</span>
+                }
+              </div>
+            }
+            @if (c.none) {
+              <div
+                class="ca-seg ca-empty"
+                [style.flex]="flexOf(c.none)"
+                [title]="fmt(c.none) + ' with no record yet'"
+              >
+                @if (c.none / c.total > 0.12) {
+                  <span>{{ fmt(c.none) }} no record yet</span>
+                }
+              </div>
+            }
+          </div>
+        </div>
+      }
+    </div>
+    <div class="ca-panel ca-pad ca-bars">
+      <div class="ca-mini-head">
+        What the architect records say · all {{ fmt(total()) }} systems
+      </div>
+      @for (a of affiliationRows(); track a.label) {
+        <div class="ca-brow">
+          <div class="ca-blab">
+            {{ a.label }}<small>{{ pct(a.value, total()) }}</small>
+          </div>
+          <div class="ca-track">
+            <div [class]="'ca-seg ' + a.cls" [style.flex]="flexOf(a.value)">
+              <span>{{ fmt(a.value) }}</span>
+            </div>
+            <div class="ca-seg ca-clear" [style.flex]="flexOf(total() - a.value)"></div>
+          </div>
+        </div>
+      }
+    </div>
+  }
+
+  @case ('recon') {
+    <div class="ca-chips">
+      <span class="ca-chip">{{ fmt(s.recon.length) }} candidates</span>
+      <span class="ca-chip">{{ fmt(reconExact()) }} exactly 60 / 20 / 13 / 7</span>
+      <span class="ca-chip"><i class="ca-sw ca-c"></i>{{ fmt(reconCanonn()) }} Canonn third</span>
+      <span class="ca-chip"
+        ><i class="ca-sw ca-d"></i>{{ fmt(s.recon.length - reconCanonn()) }} CDSR third</span
+      >
+      <span class="ca-chip">{{ fmt(reconNear()) }} within 250 ly of Varati</span>
+    </div>
+    <div class="ca-panel ca-table-wrap" [class.ca-scroll]="showAllRecon()">
+      <table class="ca-table">
+        <thead>
+          <tr>
+            <th>System</th>
+            <th>Third place</th>
+            <th class="ca-n">Influence</th>
+            <th>Leader</th>
+            <th class="ca-n">From Varati</th>
+            <th>Split</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (r of reconRows(); track r.name) {
+            <tr>
+              <td>
+                <a [href]="inara(r.name)" target="_blank" rel="noopener">{{ r.name }}</a>
+              </td>
+              <td>
+                <i class="ca-sw" [class.ca-c]="r.us === 'C'" [class.ca-d]="r.us === 'D'"></i
+                >{{ r.us === 'C' ? 'Canonn' : 'CDSR' }}
+              </td>
+              <td class="ca-n">{{ r.influence.toFixed(2) }}%</td>
+              <td>
+                {{ r.leader }}
+                @if (r.ledByUs) {
+                  <span class="ca-flag">ours</span>
+                }
+              </td>
+              <td class="ca-n">{{ fmt(round(r.fromVarati)) }} ly</td>
+              <td>{{ r.exact ? 'exact' : 'near' }}</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+    @if (s.recon.length > 20) {
+      <button type="button" class="ca-btn" (click)="showAllRecon.set(!showAllRecon())">
+        {{ showAllRecon() ? 'Show the nearest 20' : 'Show all ' + fmt(s.recon.length) }}
+      </button>
+    }
+  }
+
+  @case ('builders') {
+    <div class="ca-legend">
+      <span><i class="ca-sw ca-c"></i>Mostly Canonn-preferred</span>
+      <span><i class="ca-sw ca-d"></i>Mostly CDSR-preferred</span>
+      <span><i class="ca-sw ca-o"></i>Mostly another faction</span>
+      <span><i class="ca-sw ca-u"></i>No preference recorded</span>
+    </div>
+    <div class="ca-panel ca-center">
+      <svg
+        #pack
+        class="ca-pack"
+        role="img"
+        aria-label="Circle packing of architects sized by systems built"
+      ></svg>
+      <div class="ca-hint">
+        <span>Each bubble is an architect, sized by systems built</span
+        ><span>Hover a bubble for the breakdown</span>
+      </div>
+    </div>
+  }
+
+  @case ('control') {
+    <div class="ca-legend">
+      <span><i class="ca-sw ca-c"></i>Run by Canonn</span>
+      <span><i class="ca-sw ca-d"></i>Run by CDSR</span>
+      <span><i class="ca-sw ca-o"></i>Run by another faction</span>
+    </div>
+    <div class="ca-panel ca-pad ca-bars">
+      @for (r of matrixRows(); track r.group) {
+        <div class="ca-brow">
+          <div class="ca-blab">
+            {{ r.label }}<small>{{ fmt(r.total) }} systems</small>
+          </div>
+          <div class="ca-track">
+            @if (r.C) {
+              <div
+                class="ca-seg ca-c"
+                [style.flex]="flexOf(r.C)"
+                [title]="fmt(r.C) + ' run by Canonn'"
+              >
+                @if (r.C / r.total > 0.07) {
+                  <span>{{ fmt(r.C) }}</span>
+                }
+              </div>
+            }
+            @if (r.D) {
+              <div
+                class="ca-seg ca-d"
+                [style.flex]="flexOf(r.D)"
+                [title]="fmt(r.D) + ' run by CDSR'"
+              >
+                @if (r.D / r.total > 0.07) {
+                  <span>{{ fmt(r.D) }}</span>
+                }
+              </div>
+            }
+            @if (r.O) {
+              <div
+                class="ca-seg ca-o"
+                [style.flex]="flexOf(r.O)"
+                [title]="fmt(r.O) + ' run by another faction'"
+              >
+                @if (r.O / r.total > 0.07) {
+                  <span>{{ fmt(r.O) }}</span>
+                }
+              </div>
+            }
+          </div>
+        </div>
+      }
+    </div>
+    <div class="ca-panel ca-table-wrap">
+      <div class="ca-mini-head">
+        Closest to Canonn control · Canonn-preferred systems run by others
+      </div>
+      <table class="ca-table">
+        <thead>
+          <tr>
+            <th>System</th>
+            <th>Run by</th>
+            <th class="ca-n">Points behind</th>
+            <th>Priority</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (g of s.controlGaps.slice(0, 10); track g.name) {
+            <tr>
+              <td>
+                <a [href]="inara(g.name)" target="_blank" rel="noopener">{{ g.name }}</a>
+              </td>
+              <td>{{ g.controller }}</td>
+              <td class="ca-n">{{ g.behind.toFixed(1) }}</td>
+              <td>{{ g.priorityTier }}</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  }
+
+  @case ('margins') {
+    <div class="ca-legend">
+      <span><i class="ca-sw ca-bad"></i>Under 5 points</span>
+      <span><i class="ca-sw ca-warn"></i>5–15 points</span>
+      <span><i class="ca-sw ca-good"></i>15 points or more</span>
+    </div>
+    <div class="ca-panel">
+      <svg #margin role="img" aria-label="Histogram of control margins for Canonn and CDSR"></svg>
+      <div class="ca-hint">
+        <span>Lead over the second faction, 2.5-point bands</span
+        ><span
+          >The 5–15 band is interpolated between the BGS guide's 4.5% "close" and 15–20%
+          "healthy"</span
+        >
+      </div>
+    </div>
+    <div class="ca-chips">
+      <span class="ca-chip"
+        ><i class="ca-sw ca-bad"></i>{{ fmt(marginCounts().close) }} under 5 pts</span
+      >
+      <span class="ca-chip"
+        ><i class="ca-sw ca-warn"></i>{{ fmt(marginCounts().middle) }} 5–15 pts</span
+      >
+      <span class="ca-chip"
+        ><i class="ca-sw ca-good"></i>{{ fmt(marginCounts().healthy) }} 15 pts or more</span
+      >
+      <span class="ca-chip">of {{ fmt(marginCounts().total) }} systems run by Canonn or CDSR</span>
+    </div>
+  }
+
+  @case ('retreat') {
+    <div class="ca-split">
+      <div class="ca-panel ca-pad">
+        <div class="ca-mini-head ca-flush">Minor factions per system</div>
+        <svg #nf role="img" aria-label="Systems by number of minor factions"></svg>
+        <div class="ca-note-sm">
+          <i class="ca-sw ca-good"></i>Three or fewer factions: retreat cannot happen
+        </div>
+      </div>
+      <div class="ca-panel ca-table-wrap">
+        <div class="ca-mini-head">
+          Canonn or CDSR under 5% influence · {{ s.lowInfluence.length }} systems
+        </div>
+        <table class="ca-table">
+          <thead>
+            <tr>
+              <th>System</th>
+              <th>Faction</th>
+              <th class="ca-n">Influence</th>
+              <th class="ca-n">Factions</th>
+              <th>Retreat?</th>
+              <th>Prefers</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (l of s.lowInfluence; track l.name + l.us) {
+              <tr>
+                <td>
+                  <a [href]="inara(l.name)" target="_blank" rel="noopener">{{ l.name }}</a>
+                </td>
+                <td>{{ l.us === 'C' ? 'Canonn' : 'CDSR' }}</td>
+                <td class="ca-n">{{ l.influence.toFixed(2) }}%</td>
+                <td class="ca-n">{{ l.factions }}</td>
+                <td>
+                  @if (l.retreatPossible) {
+                    <span class="ca-flag ca-flag-warn">Possible</span>
+                  } @else {
+                    <span class="ca-ok">No</span>
+                  }
+                </td>
+                <td>
+                  {{
+                    l.pref === 'C'
+                      ? 'Canonn'
+                      : l.pref === 'D'
+                        ? 'CDSR'
+                        : l.pref === 'O'
+                          ? 'Another'
+                          : '—'
+                  }}
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    </div>
+  }
+
+  @case ('week') {
+    <div class="ca-split">
+      <div class="ca-panel ca-pad">
+        <div class="ca-mini-head ca-flush">Biggest 7-day moves · our home systems, in points</div>
+        <svg #movers role="img" aria-label="Biggest 7-day influence changes"></svg>
+      </div>
+      <div class="ca-panel ca-pad">
+        <div class="ca-mini-head ca-flush">Recent readings · the liveliest histories</div>
+        <div #sparks class="ca-sparks"></div>
+      </div>
+    </div>
+  }
+
+  @case ('map') {
+    <div class="ca-controls">
+      <div class="ca-seg-ctl" role="group" aria-label="Map view">
+        <button
+          type="button"
+          [attr.aria-pressed]="mapView() === 'near'"
+          (click)="setMapView('near')"
+        >
+          Near Varati
+        </button>
+        <button type="button" [attr.aria-pressed]="mapView() === 'all'" (click)="setMapView('all')">
+          Whole galaxy
+        </button>
+      </div>
+      <div class="ca-seg-ctl" role="group" aria-label="Map filter">
+        <button
+          type="button"
+          [attr.aria-pressed]="mapFilter() === 'all'"
+          (click)="setMapFilter('all')"
+        >
+          All systems
+        </button>
+        <button
+          type="button"
+          [attr.aria-pressed]="mapFilter() === 'pref'"
+          (click)="setMapFilter('pref')"
+        >
+          Canonn-preferred
+        </button>
+        <button
+          type="button"
+          [attr.aria-pressed]="mapFilter() === 'move'"
+          (click)="setMapFilter('move')"
+        >
+          Moved 3+ pts this week
+        </button>
+        <button
+          type="button"
+          [attr.aria-pressed]="mapFilter() === 'recon'"
+          (click)="setMapFilter('recon')"
+        >
+          Recon candidates
+        </button>
+      </div>
+    </div>
+    <div class="ca-legend">
+      <span><i class="ca-sw ca-c"></i>Run by Canonn</span>
+      <span><i class="ca-sw ca-d"></i>Run by CDSR</span>
+      <span><i class="ca-sw ca-o"></i>Run by another faction</span>
+    </div>
+    <div class="ca-panel">
+      <canvas
+        #map
+        class="ca-map"
+        role="img"
+        aria-label="Map of systems on the galactic plane"
+        (pointermove)="onMapMove($event)"
+        (pointerleave)="hideTip()"
+      ></canvas>
+      <div class="ca-hint">
+        <span>Galactic plane, x across and z up towards the core</span
+        ><span>Rings at 100 and 250 ly from Varati</span>
+      </div>
+    </div>
+  }
+
+  @case ('named') {
+    <div class="ca-wall">
+      @for (n of s.named; track n.name + n.system) {
+        <div class="ca-st" [class]="'ca-st ca-st-' + n.owner">
+          <b>{{ n.name }}</b>
+          <span>
+            @switch (n.owner) {
+              @case ('B') {
+                under construction
+              }
+              @case ('O') {
+                run by {{ n.controller }}
+              }
+              @default {
+                {{ n.type || 'station' }}
+              }
+            }
+            · {{ n.system }}
+          </span>
+        </div>
+      }
+    </div>
+    <div class="ca-legend">
+      <span><i class="ca-sw ca-c"></i>Run by Canonn</span>
+      <span><i class="ca-sw ca-d"></i>Run by CDSR</span>
+      <span><i class="ca-sw ca-hollow ca-warn-outline"></i>Run by another faction</span>
+      <span><i class="ca-sw ca-hollow"></i>Under construction</span>
+    </div>
+  }
+
+  @case ('neighbours') {
+    <div class="ca-split">
+      <div class="ca-panel ca-pad">
+        <div class="ca-mini-head ca-flush">
+          Most frequent neighbours · systems shared with Canonn or CDSR
+        </div>
+        <svg #nb role="img" aria-label="Most frequent neighbouring factions"></svg>
+      </div>
+      <div class="ca-panel ca-pad">
+        <div class="ca-mini-head ca-flush">Powers present in systems we run</div>
+        <svg #pp role="img" aria-label="Powers present in Canonn and CDSR systems"></svg>
+        <div class="ca-chips ca-chips-tight">
+          @for (p of s.powerStates; track p.state) {
+            <span class="ca-chip">{{ fmt(p.systems) }} {{ p.state.toLowerCase() }}</span>
+          }
+        </div>
+      </div>
+    </div>
+  }
+}
+
+<div
+  class="ca-tip"
+  [class.ca-tip-hidden]="!tip().visible"
+  [style.left.px]="tip().x + 14"
+  [style.top.px]="tip().y + 14"
+  [innerHTML]="tip().html"
+></div>

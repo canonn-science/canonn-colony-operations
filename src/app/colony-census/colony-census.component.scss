@@ -3,7 +3,7 @@
 // custom property and class is prefixed `cc-` to keep this out of the rest of the app's cascade.
 :host {
   display: block;
-  --cc-f-display: 'Saira Semi Condensed', 'Arial Narrow', system-ui, sans-serif;
+  --cc-f-display: 'Big Shoulders Display', 'Saira Semi Condensed', 'Arial Narrow', Impact, sans-serif;
   --cc-f-body: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --cc-f-mono: 'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace;
 
@@ -13,24 +13,34 @@
   --cc-ink-2: #b3bcc4;
   --cc-ink-3: #7f8a94;
   --cc-rule: var(--color-border-muted);
-  --cc-accent: #f08a3c;
+  // Identity colours: Canonn always in its logo orange, CDSR in blue, every other faction neutral.
+  --cc-canonn: #f47d04;
+  --cc-on-canonn: #241300;
+  --cc-cdsr: #3d8be8;
+  --cc-other: #7d8794;
+  --cc-unset: #39424e;
+  --cc-good: #3aa864;
+  --cc-warn: #d6c24a;
+  --cc-bad: #e66767;
+  --cc-accent: var(--cc-canonn);
   --cc-grid: #1f262c;
   --cc-s0: #4a545d;
-  --cc-s1: #3987e5;
-  --cc-s2: #d95926;
-  --cc-s3: #199e70;
-  --cc-s4: #c98500;
+  --cc-s1: var(--cc-canonn);
+  --cc-s2: #8b949f;
+  --cc-s3: var(--cc-cdsr);
+  --cc-s4: var(--cc-warn);
   --cc-s7: #9085e9;
-  --cc-q1: #184f95;
-  --cc-q2: #1c5cab;
-  --cc-q3: #256abf;
-  --cc-q4: #2a78d6;
-  --cc-q5: #3987e5;
-  --cc-q6: #5598e7;
-  --cc-q7: #86b6ef;
+  // A neutral ramp (blue is reserved for CDSR): freshest darkest, oldest palest.
+  --cc-q1: #4f5966;
+  --cc-q2: #5d6876;
+  --cc-q3: #6c7785;
+  --cc-q4: #7c8794;
+  --cc-q5: #8e98a4;
+  --cc-q6: #a3acb6;
+  --cc-q7: #bcc3cb;
   // A qualitative palette for the Faction Atlas's clusters — distinct hues, not a gradient.
   --cc-c0: #3987e5;
-  --cc-c1: #f08a3c;
+  --cc-c1: #a3d65c;
   --cc-c2: #199e70;
   --cc-c3: #d457bb;
   --cc-c4: #d9bb3c;
@@ -47,7 +57,9 @@
 }
 
 .cc-page {
-  // Full width, like the Priorities tab.
+  // One readable column of numbered plates, like the published atlas.
+  max-width: 1180px;
+  margin: 0 auto;
   padding: 16px 20px 32px;
   display: flex;
   flex-direction: column;
@@ -59,19 +71,18 @@
 .cc-cols {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 40px;
+  gap: 0;
+  counter-reset: plate;
 
   > section {
     min-width: 0;
+    counter-increment: plate;
+    padding: 44px 0 36px;
+    border-bottom: 1px solid var(--cc-rule);
   }
 
-  @media (min-width: 1100px) {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 40px 32px;
-
-    > .cc-wide {
-      grid-column: 1 / -1;
-    }
+  > section:first-child {
+    padding-top: 8px;
   }
 }
 
@@ -169,24 +180,39 @@ section {
 
 .cc-plate-head {
   display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 6px 14px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
 }
 
 .cc-tag {
   font-family: var(--cc-f-mono);
   font-size: 12px;
-  color: var(--cc-ink-3);
-  letter-spacing: 0.06em;
+  color: var(--cc-accent);
+  letter-spacing: 0.12em;
   text-transform: uppercase;
+
+  &::before {
+    content: 'Plate ' counter(plate) ' · ';
+  }
 }
 
 h2 {
   font-family: var(--cc-f-display);
-  font-weight: 600;
-  font-size: 28px;
-  line-height: 1.15;
+  font-weight: 800;
+  font-size: clamp(30px, 4.4vw, 50px);
+  line-height: 0.95;
+  text-transform: uppercase;
+  letter-spacing: 0.005em;
+  text-wrap: balance;
+  max-width: 24ch;
+  margin: 0;
+}
+
+.cc-dek {
+  max-width: 72ch;
+  font-size: 16px;
+  color: var(--cc-ink-2);
   margin: 0;
 }
 
@@ -440,7 +466,7 @@ h3 {
 
 .cc-foot-strip {
   display: block;
-  width: 100%;
+  width: calc(100% - 32px);
   height: 34px;
   margin: 12px 16px 0;
 }
@@ -546,7 +572,7 @@ h3 {
     top: 0;
     height: 100%;
     display: block;
-    background: var(--cc-s2);
+    background: var(--cc-s1);
     border-radius: 2px;
   }
 
