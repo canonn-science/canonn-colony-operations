@@ -1,0 +1,308 @@
+@let s = story;
+<div class="pc">
+  <header class="pc-head">
+    <div class="pc-eyebrow">
+      <span class="pc-tier" [class]="'pc-tier pc-tier--' + row.priority.tier">{{
+        row.priority.tier === 'out-of-scope' ? 'Hands off' : row.priority.tier
+      }}</span>
+      @if (row.priority.score !== null) {
+        <span>Score {{ row.priority.score }}</span>
+      }
+      <a [href]="inara" target="_blank" rel="noopener">Open in Inara ↗</a>
+    </div>
+    <h2 mat-dialog-title class="pc-title">{{ row.systemName }}</h2>
+    <p class="pc-headline">{{ s.headline }}</p>
+    <div class="pc-meta">
+      <span
+        >Worked for <b>{{ short(s.us) }}</b></span
+      >
+      <span
+        >Architect
+        <b>{{ row.architect ?? (row.notAColony ? 'not a colony' : 'none recorded') }}</b></span
+      >
+      <span
+        >Run by <b>{{ row.controllingFaction ?? '—' }}</b></span
+      >
+      <span
+        >Population <b>{{ population(row.population) }}</b></span
+      >
+      @if (row.priority.reconAgeDays !== null) {
+        <span
+          >Last seen
+          <b>{{
+            row.priority.reconAgeDays === 0 ? 'today' : row.priority.reconAgeDays + ' d ago'
+          }}</b></span
+        >
+      }
+    </div>
+  </header>
+
+  <mat-dialog-content class="pc-body">
+    <div class="pc-row">
+      <section class="pc-panel">
+        <h3>Why it's a priority</h3>
+        <ul class="pc-why">
+          @for (w of s.why; track $index) {
+            <li>{{ w }}</li>
+          }
+        </ul>
+      </section>
+
+      <section class="pc-panel">
+        <h3>Influence now</h3>
+        <div class="pc-bars" (pointerleave)="hoverFaction.set(null)">
+          @for (f of row.factions; track f.name) {
+            <div
+              class="pc-bar"
+              (pointerenter)="hoverFaction.set(f.name)"
+              [class.pc-bar--hover]="hoverFaction() === f.name"
+            >
+              <span class="pc-bar-name">
+                {{ short(f.name) }}
+                @if (f.name === row.controllingFaction) {
+                  <span class="pc-crown">runs it</span>
+                }
+              </span>
+              <span class="pc-bar-track"
+                ><i
+                  [style.width.%]="(f.influencePercent / maxInfluence) * 100"
+                  [style.background]="colourOf(f.name)"
+                ></i
+              ></span>
+              <span class="pc-bar-val">{{ f.influencePercent.toFixed(1) }}%</span>
+            </div>
+          }
+        </div>
+        <div class="pc-hover-note">
+          @if (hoverDetail(); as d) {
+            <b>{{ d.name }}</b> · {{ d.government ?? 'government unknown' }} ·
+            {{ d.allegiance ?? '—' }}
+            @if (d.activeStates.length) {
+              · {{ d.activeStates.join(', ') }}
+            }
+          } @else {
+            Hover a faction for its government and states
+          }
+        </div>
+
+        <h3 class="pc-sub">{{ short(s.us) }} influence, recent readings</h3>
+        @if (spark(); as sp) {
+          <svg
+            class="pc-spark"
+            [attr.viewBox]="'0 0 ' + sp.w + ' ' + sp.h"
+            (pointermove)="onSparkMove($event)"
+            (pointerleave)="hoverPoint.set(null)"
+            role="img"
+            [attr.aria-label]="short(s.us) + ' influence history'"
+          >
+            <polygon [attr.points]="sp.area" [attr.fill]="colourOf(s.us)" opacity="0.15"></polygon>
+            <polyline
+              [attr.points]="sp.line"
+              fill="none"
+              [attr.stroke]="colourOf(s.us)"
+              stroke-width="2.5"
+            ></polyline>
+            @if (hoverPoint(); as hp) {
+              <line
+                [attr.x1]="sp.pts[hp].x"
+                [attr.x2]="sp.pts[hp].x"
+                y1="0"
+                [attr.y2]="sp.h"
+                stroke="var(--pc-muted)"
+                stroke-dasharray="3 3"
+              ></line>
+            }
+            @let i = hoverPoint() ?? sp.pts.length - 1;
+            <circle
+              [attr.cx]="sp.pts[i].x"
+              [attr.cy]="sp.pts[i].y"
+              r="4"
+              [attr.fill]="colourOf(s.us)"
+            ></circle>
+            <text [attr.x]="sp.w - 56" [attr.y]="sp.pts[i].y + 5" class="pc-spark-val">
+              {{ sp.pts[i].v.toFixed(1) }}%
+            </text>
+          </svg>
+          <div class="pc-spark-foot">
+            <span>{{
+              hoverPoint() !== null
+                ? 'Reading ' + ((hoverPoint() ?? 0) + 1) + ' of ' + sp.pts.length
+                : sp.pts.length + ' readings · hover to scrub'
+            }}</span>
+            <button mat-button type="button" (click)="openHistory()">Full history chart</button>
+          </div>
+        } @else {
+          <p class="pc-muted">Not enough history yet.</p>
+        }
+      </section>
+    </div>
+
+    @if (s.conflict; as c) {
+      <section class="pc-panel">
+        <h3>{{ c.type }} · {{ c.status }} · first side to win 4 days takes the other's stake</h3>
+        <div class="pc-score">
+          <span class="pc-side"
+            ><i class="pc-sw" [style.background]="colourOf(c.us)"></i>{{ short(c.us) }}</span
+          >
+          <span class="pc-pips">
+            @for (on of pips(c.usDays); track $index) {
+              <i [class.on]="on" [style.background]="on ? colourOf(c.us) : null"></i>
+            }
+          </span>
+          <span class="pc-big">{{ c.usDays }} – {{ c.themDays }}</span>
+          <span class="pc-pips">
+            @for (on of pips(c.themDays); track $index) {
+              <i [class.on]="on" [style.background]="on ? 'var(--pc-other)' : null"></i>
+            }
+          </span>
+          <span class="pc-side">{{ c.them }}</span>
+        </div>
+        <p class="pc-muted">
+          Our stake: <b>{{ c.usStake || 'nothing' }}</b> · Their stake:
+          <b>{{ c.themStake || 'nothing' }}</b>
+        </p>
+      </section>
+    }
+
+    @if (s.canonnStations.length) {
+      <section class="pc-panel">
+        <h3>Stations carrying the Canonn name</h3>
+        <div class="pc-stations">
+          @for (st of s.canonnStations; track st.name) {
+            <div class="pc-st" [class]="'pc-st pc-st--' + st.owner">
+              <b>{{ st.name }}</b>
+              <span>
+                @switch (st.owner) {
+                  @case ('B') {
+                    under construction
+                  }
+                  @case ('O') {
+                    run by {{ st.controller }}: we would really like Canonn to control it
+                  }
+                  @default {
+                    {{ st.type ?? 'station' }} · {{ short(st.controller) }}
+                  }
+                }
+              </span>
+            </div>
+          }
+        </div>
+      </section>
+    }
+
+    <section class="pc-panel">
+      <h3>What helps right now</h3>
+      <div class="pc-help">
+        @for (h of s.help; track h.label) {
+          <div>
+            <b>{{ h.label }}</b
+            ><span>{{ h.text }}</span>
+          </div>
+        }
+      </div>
+    </section>
+
+    <section class="pc-panel">
+      <h3>Path to full control</h3>
+      <ol class="pc-steps">
+        @for (c of s.control; track $index) {
+          <li>
+            <span>{{ c }}</span>
+          </li>
+        }
+      </ol>
+    </section>
+
+    @if (s.powerplay; as pp) {
+      <section class="pc-panel">
+        <h3>Powerplay · {{ pp.power }} · {{ pp.state ?? '' }}</h3>
+        <div class="pc-pp">
+          <span
+            >Reinforcement <b>{{ pp.reinforcement.toLocaleString('en-GB') }}</b></span
+          >
+          <span class="pc-pp-bar">
+            <i class="pc-pp-r" [style.flex]="pp.reinforcement || 0.0001"></i>
+            <i class="pc-pp-u" [style.flex]="pp.undermining || 0.0001"></i>
+          </span>
+          <span
+            ><b>{{ pp.undermining.toLocaleString('en-GB') }}</b> Undermining</span
+          >
+        </div>
+        <p class="pc-text">
+          {{ pp.reading }}
+          @if (!pp.notable) {
+            <span class="pc-muted"> Totals are small, so treat this as background.</span>
+          }
+        </p>
+      </section>
+    }
+
+    <section class="pc-panel">
+      <h3>History and relationships</h3>
+      @for (a of s.agreements; track $index) {
+        <div class="pc-agree">Watchlist: {{ a }}</div>
+      }
+      @for (h of s.history; track $index) {
+        <p class="pc-text">{{ h }}</p>
+      }
+      <div class="pc-rivals">
+        @for (r of s.rivals; track r.faction) {
+          <button
+            type="button"
+            class="pc-rival"
+            [attr.aria-expanded]="openRival() === r.faction"
+            (click)="toggleRival(r)"
+          >
+            <b
+              >{{ r.faction }}
+              @if (r.playerGroup) {
+                <span class="pc-tag">player group</span>
+              }
+            </b>
+            <span
+              >{{ r.shared.length }} system{{ r.shared.length === 1 ? '' : 's' }} shared · they run
+              {{ r.theyRun }} · we run {{ r.weRun }}</span
+            >
+          </button>
+        }
+      </div>
+      @for (r of s.rivals; track r.faction) {
+        @if (openRival() === r.faction) {
+          <div class="pc-rival-detail">
+            <p class="pc-text">
+              <b>{{ r.faction }}</b> · {{ r.government ?? 'government unknown' }} ·
+              {{ r.influence.toFixed(1) }}% here
+              @if (r.conflictsWithUs.length) {
+                · in conflict with us in {{ r.conflictsWithUs.length }} system{{
+                  r.conflictsWithUs.length === 1 ? '' : 's'
+                }}
+              }
+            </p>
+            @for (n of r.notes; track n.system) {
+              <div class="pc-agree">{{ n.system }}: {{ n.details }}</div>
+            }
+            <div class="pc-shared">
+              @for (sys of r.shared; track sys.name) {
+                <a
+                  [href]="inaraFor(sys.name)"
+                  target="_blank"
+                  rel="noopener"
+                  [class.pc-shared--here]="sys.name === row.systemName"
+                >
+                  {{ sys.name }} <span>{{ short(sys.controller) }}</span>
+                </a>
+              }
+            </div>
+          </div>
+        }
+      }
+    </section>
+  </mat-dialog-content>
+
+  <mat-dialog-actions align="end">
+    <button mat-button type="button" (click)="copyDiscord()">
+      {{ copied() ? 'Copied!' : 'Copy for Discord' }}
+    </button>
+    <button mat-flat-button type="button" mat-dialog-close>Close</button>
+  </mat-dialog-actions>
+</div>

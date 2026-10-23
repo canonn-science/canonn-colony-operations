@@ -201,6 +201,8 @@ interface BgsSystemRecord {
   states?: PriorityStates[] | null;
   /** The system's open conflicts — an input to the priority score, and the war/election tooltip's score/stake detail. */
   conflicts?: ApiConflict[] | null;
+  /** The most recent finished conflict the tracker saw here, with its outcome (e.g. `Canonn_won`); null if none. */
+  last_conflict?: ApiLastConflict | null;
   /** Hours since the system was last seen, as of the response's `generated_at`; null if never. */
   data_age_hours?: number | null;
   /** Number of astronomical bodies scanned in the system. */
@@ -261,6 +263,38 @@ interface ApiConflict extends PriorityConflict {
   /** The station each side is contesting; '' if the API has none recorded for that side. */
   stake_a?: string | null;
   stake_b?: string | null;
+}
+
+/** The last finished conflict in a system, as the API reports it. */
+interface ApiLastConflict {
+  faction_a?: string | null;
+  faction_b?: string | null;
+  war_type?: string | null;
+  /** `<faction>_won`, or `unknown`. */
+  outcome?: string | null;
+}
+
+/** One open conflict in a system, with the score and stakes — for the priority card. */
+export interface ConflictDetail {
+  /** `war`, `civilwar` or `election`. */
+  type: string;
+  /** `active` or `pending`. */
+  status: string;
+  factionA: string;
+  factionB: string;
+  wonA: number | null;
+  wonB: number | null;
+  /** The station each side has at stake; '' when none is recorded. */
+  stakeA: string;
+  stakeB: string;
+}
+
+/** The last finished conflict in a system: who fought, what kind, and who won (null when unknown). */
+export interface LastConflict {
+  factionA: string;
+  factionB: string;
+  type: string;
+  winner: string | null;
 }
 
 /** `/bgs/systems?view=all`: every system, and the constants the client needs to score and sort them. */
@@ -405,6 +439,10 @@ export interface BgsRow {
   priorityContext?: { inputs: PriorityInputs; config: BgsConfig };
   /** The system's powerplay state, or null if no power is pledged here — shown in the system info dialog. */
   powerplay: PowerplayDetail | null;
+  /** Every open conflict with its score and stakes, for the priority card; absent on rows not built from the API. */
+  conflicts?: ConflictDetail[];
+  /** The last finished conflict here, for the priority card's history; null if none is recorded. */
+  lastConflict?: LastConflict | null;
 }
 
 /** Every system, as loaded: the rows, when the server built them, and the constants it scored them with. */
@@ -474,6 +512,29 @@ export function derivePreferredFaction(
 /** Whether a station's name marks it as Canonn's — "canonn" anywhere in the name, any case. */
 export function isCanonnAsset(asset: CanonnAsset): boolean {
   return /canonn/i.test(asset.name);
+}
+
+/** An API conflict as the priority card shows it. */
+function toConflictDetail(c: ApiConflict): ConflictDetail {
+  return {
+    type: (c.war_type ?? '').toLowerCase(),
+    status: (c.status ?? '').toLowerCase(),
+    factionA: c.faction_a ?? '',
+    factionB: c.faction_b ?? '',
+    wonA: c.won_days_a ?? null,
+    wonB: c.won_days_b ?? null,
+    stakeA: (c.stake_a ?? '').trim(),
+    stakeB: (c.stake_b ?? '').trim(),
+  };
+}
+
+/** The API's last finished conflict, or null; `winner` is read from an outcome like `Canonn_won`. */
+function toLastConflict(c: ApiLastConflict | null | undefined): LastConflict | null {
+  if (!c || !c.faction_a || !c.faction_b) {
+    return null;
+  }
+  const match = /^(.*)_won$/.exec(c.outcome ?? '');
+  return { factionA: c.faction_a, factionB: c.faction_b, type: (c.war_type ?? '').toLowerCase(), winner: match ? match[1] : null };
 }
 
 /** The powerplay state from an API record, or null if no power is pledged to the system. */
@@ -1161,6 +1222,8 @@ export class CanonnBgsService {
       priority: computePriority(priorityInputs, config),
       priorityContext: { inputs: priorityInputs, config },
       powerplay: toPowerplay(record),
+      conflicts: conflicts.map(toConflictDetail),
+      lastConflict: toLastConflict(record.last_conflict),
     };
   }
 

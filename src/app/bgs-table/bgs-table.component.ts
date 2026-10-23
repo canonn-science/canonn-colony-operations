@@ -40,6 +40,7 @@ import {
 } from '../influence-chart-dialog/influence-chart-dialog.component';
 import { InfluenceSparklineComponent } from '../influence-sparkline/influence-sparkline.component';
 import { LoadingTerminalComponent } from '../loading-terminal/loading-terminal.component';
+import { PriorityCardDialogComponent, PriorityCardDialogData } from '../priority-card-dialog/priority-card-dialog.component';
 import {
   PriorityWatchlistDialogComponent,
   PriorityWatchlistDialogData,
@@ -861,6 +862,18 @@ export class BgsTableComponent implements OnDestroy {
       autoFocus: 'first-tabbable',
       restoreFocus: true,
       maxWidth: 'min(900px, 94vw)',
+    });
+  }
+
+  /** Opens the priority card for a system, from its Priority pill: why it matters, what helps and the path to control. */
+  protected openPriorityCard(row: BgsRow): void {
+    const data: PriorityCardDialogData = { row: { ...row, priority: this.priorityFor(row) }, rows: this.allRows() ?? [row] };
+    this.dialog.open(PriorityCardDialogComponent, {
+      data,
+      autoFocus: 'first-tabbable',
+      restoreFocus: true,
+      maxWidth: 'min(1000px, 94vw)',
+      width: '1000px',
     });
   }
 
