@@ -479,13 +479,16 @@
                   @if (priority.tier === 'not-applicable') {
                     <span>—</span>
                   } @else {
-                    <span
+                    <button
+                      type="button"
                       class="bgs-priority-pill"
-                      [class]="'bgs-priority-pill--' + priority.tier"
-                      [matTooltip]="priorityTitle(priority)"
+                      [class]="'bgs-priority-pill bgs-priority-pill--' + priority.tier"
+                      [matTooltip]="priorityTitle(priority) + '\n\nClick for the priority card'"
+                      [attr.aria-label]="'Show the priority card for ' + row.systemName"
+                      (click)="openPriorityCard(row)"
                     >
                       {{ priority.tier === 'out-of-scope' ? '⛔' : priority.tier }}
-                    </span>
+                    </button>
                   }
                 </td>
                 <td class="bgs-col-wrap">{{ row.controllingFaction ?? '—' }}</td>
