@@ -16,7 +16,7 @@ import {
   ConflictDetail,
   StationDetail,
 } from '../canonn-bgs.service';
-import { AFFILIATION_CANONN_MEMBER } from './architect-form';
+import { AFFILIATION_CANONN_MEMBER, AFFILIATION_NOT_MEMBER } from './architect-form';
 
 const US: readonly string[] = [CANONN_FACTION, CDSR_FACTION];
 /** A Powerplay side this size or larger is worth calling out; smaller totals are background noise. */
@@ -302,7 +302,7 @@ export function buildPriorityStory(row: BgsRow, rows: readonly BgsRow[]): Priori
   const why: string[] = (row.priority?.reasons ?? []).map((r) => r.label);
   if (hasArchitect)
     why.push(
-      `${memberArchitect ? 'Canonn architect' : 'Architect'} ${row.architect}${row.preferredFactionRecorded && row.preferredFaction ? ` asked for ${short(row.preferredFaction)}` : ''}`,
+      `System architect ${row.architect}${memberArchitect ? ' is a Canonn member' : row.architectAffiliation === AFFILIATION_NOT_MEMBER ? ' is not a Canonn member' : ''}`,
     );
   if (canonnStations.length) {
     why.push(

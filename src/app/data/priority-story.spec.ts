@@ -139,7 +139,7 @@ describe('buildPriorityStory', () => {
   it('keeps the API reasons and names a Canonn architect', () => {
     const story = buildPriorityStory(base, [base]);
     expect(story.why[0]).toBe('A reason from the API');
-    expect(story.why).toContain('Canonn architect Builder asked for Canonn');
+    expect(story.why).toContain('System architect Builder is a Canonn member');
   });
 
   it('only offers trade and exploration where Canonn owns a station', () => {
