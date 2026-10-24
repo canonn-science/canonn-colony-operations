@@ -20,7 +20,7 @@ const HISTORY: HistoryRow[] = [
 
 describe('InfluenceChartDialogComponent', () => {
   let fixture: ComponentFixture<InfluenceChartDialogComponent>;
-  let service: { getInfluenceHistory: ReturnType<typeof vi.fn> };
+  let service: { getInfluenceHistory: ReturnType<typeof vi.fn>; getSystemConflicts: ReturnType<typeof vi.fn> };
 
   async function open(
     data: Partial<InfluenceChartDialogData> = {},
@@ -43,6 +43,7 @@ describe('InfluenceChartDialogComponent', () => {
     fixture = TestBed.createComponent(InfluenceChartDialogComponent);
     fixture.detectChanges();
     await fixture.whenStable();
+    await new Promise(resolve => setTimeout(resolve)); // the history and the conflicts are two awaits
     fixture.detectChanges();
     return fixture.nativeElement;
   }
@@ -60,7 +61,7 @@ describe('InfluenceChartDialogComponent', () => {
   }
 
   beforeEach(async () => {
-    service = { getInfluenceHistory: vi.fn() };
+    service = { getInfluenceHistory: vi.fn(), getSystemConflicts: vi.fn().mockResolvedValue([]) };
     await TestBed.configureTestingModule({
       imports: [InfluenceChartDialogComponent],
       providers: [
@@ -144,6 +145,70 @@ describe('InfluenceChartDialogComponent', () => {
 
     const values = Array.from(element.querySelectorAll('.tooltip-value')).map(e => e.textContent?.trim());
     expect(values).toEqual(['60.0%', '20.0%', '12.0%']);
+  });
+
+  it('shades each war and election, and says what was on at the hovered snapshot', async () => {
+    service.getSystemConflicts.mockResolvedValue([
+      {
+        war_type: 'war',
+        status: 'active',
+        faction_a: 'Canonn',
+        faction_b: 'Local Faction',
+        first_seen: '2026-10-08T00:00:00Z',
+        ended_at: null,
+        won_days_a: 3,
+        won_days_b: 1,
+      },
+      {
+        war_type: 'election',
+        status: 'ended',
+        faction_a: 'Canonn Deep Space Research',
+        faction_b: 'Local Faction',
+        first_seen: '2026-10-01T00:00:00Z',
+        ended_at: '2026-10-04T00:00:00Z',
+        outcome: 'Canonn Deep Space Research_won',
+      },
+    ]);
+    const element = await open();
+
+    expect(element.querySelectorAll('rect.band')).toHaveLength(2);
+    expect(element.querySelectorAll('rect.band--election')).toHaveLength(1);
+
+    pointerMove(element, 0.02); // 1 Oct: only the election is on
+    expect(element.querySelector('.tooltip-conflict')?.textContent).toContain('Election: CDSR vs Local Faction — CDSR won');
+
+    pointerMove(element, 0.98); // 10 Oct: the war is running
+    expect(element.querySelector('.tooltip-conflict')?.textContent).toContain('War: Canonn vs Local Faction — latest 3–1 days');
+  });
+
+  it('still draws the chart when the conflicts cannot be had', async () => {
+    service.getSystemConflicts.mockRejectedValue(new Error('HTTP 500'));
+    const element = await open();
+
+    expect(element.querySelectorAll('polyline.series')).toHaveLength(4);
+    expect(element.querySelectorAll('rect.band')).toHaveLength(0);
+  });
+
+  it('zooms to a dragged selection and resets', async () => {
+    const element = await open();
+    const svg = element.querySelector('svg')!;
+    svg.getBoundingClientRect = () => ({ left: 0, top: 0, width: 780, height: 340, right: 780, bottom: 340, x: 0, y: 0, toJSON: () => ({}) });
+    svg.setPointerCapture = () => undefined;
+    const fire = (type: string, clientX: number): void => {
+      svg.dispatchEvent(new PointerEvent(type, { clientX, button: 0, bubbles: true }));
+      fixture.detectChanges();
+    };
+
+    fire('pointerdown', 100);
+    fire('pointermove', 300);
+    expect(element.querySelector('rect.selection')).not.toBeNull();
+    fire('pointerup', 300);
+    expect(element.querySelector('rect.selection')).toBeNull();
+    expect(element.textContent).toContain('Reset zoom');
+
+    element.querySelector<HTMLButtonElement>('.chart-hint button')!.click();
+    fixture.detectChanges();
+    expect(element.textContent).not.toContain('Reset zoom');
   });
 
   it('steps between snapshots with the arrow keys', async () => {

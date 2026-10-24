@@ -1,10 +1,14 @@
 import {
+  ConflictRow,
   FactionSeries,
   HistoryRow,
   axisMax,
   axisTicks,
   buildAverages,
+  buildConflictSpans,
   buildSeries,
+  conflictsAt,
+  describeConflict,
   nearestIndex,
   shortFactionName,
   snapshotTimes,
@@ -54,6 +58,63 @@ describe('buildSeries', () => {
 
   it('is empty for no rows', () => {
     expect(buildSeries([])).toEqual([]);
+  });
+
+  it('reads wars and elections out of the states, active or pending, and ignores other states', () => {
+    const series = buildSeries([
+      { ...row('A', 0.1, T1), active_states: '[{"State": "War"}, {"State": "Boom"}]', pending_states: '[]' },
+      { ...row('A', 0.1, T2), active_states: '[]', pending_states: '[{"State": "Election", "Trend": 0}]' },
+      { ...row('A', 0.1, T3), active_states: '[{"State": "CivilWar"}]' },
+      { ...row('B', 0.1, T1), active_states: 'not json' },
+    ]);
+
+    expect(series[0].points.map(p => p.conflicts)).toEqual([['War'], ['Election (pending)'], ['Civil war']]);
+    expect(series[1].points[0].conflicts).toEqual([]);
+  });
+});
+
+describe('conflict spans', () => {
+  const war: ConflictRow = {
+    war_type: 'war',
+    status: 'active',
+    faction_a: 'Canonn',
+    faction_b: 'Foe',
+    first_seen: T2,
+    won_days_a: 2,
+    won_days_b: 0,
+  };
+
+  it('keeps wars and elections, and drops anything it cannot place', () => {
+    const spans = buildConflictSpans([
+      { ...war, war_type: 'election', first_seen: T1 },
+      war,
+      { ...war, war_type: 'mystery' },
+      { ...war, first_seen: 'nope' },
+    ]);
+
+    expect(spans.map(s => s.kind)).toEqual(['Election', 'War']);
+    expect(spans[1].end).toBeNull();
+  });
+
+  it('describes an open one with its latest score and a finished one with its winner', () => {
+    const [open] = buildConflictSpans([war]);
+    const [done] = buildConflictSpans([
+      { ...war, ended_at: T3, outcome: 'Canonn Deep Space Research_won', faction_a: 'Canonn Deep Space Research' },
+    ]);
+    const [pending] = buildConflictSpans([{ ...war, status: 'pending' }]);
+
+    expect(describeConflict(open)).toBe('War: Canonn vs Foe — latest 2–0 days');
+    expect(describeConflict(done)).toBe('War: CDSR vs Foe — CDSR won');
+    expect(describeConflict(pending)).toBe('War (pending): Canonn vs Foe');
+  });
+
+  it('finds the conflicts open at a time', () => {
+    const spans = buildConflictSpans([{ ...war, ended_at: T3 }]);
+
+    expect(conflictsAt(spans, Date.parse(T1))).toEqual([]);
+    expect(conflictsAt(spans, Date.parse(T2))).toHaveLength(1);
+    expect(conflictsAt(spans, Date.parse(T3))).toHaveLength(1);
+    expect(conflictsAt(spans, Date.parse(T3) + 1)).toEqual([]);
   });
 });
 
@@ -110,7 +171,7 @@ describe('snapshots and lookups', () => {
 
 describe('axes', () => {
   const series = (value: number): FactionSeries[] => [
-    { name: 'F', label: 'F', tracked: false, points: [{ time: 0, value }] },
+    { name: 'F', label: 'F', tracked: false, points: [{ time: 0, value, conflicts: [] }] },
   ];
 
   it('tops the axis at the next 10% above the highest value, between 20% and 100%', () => {

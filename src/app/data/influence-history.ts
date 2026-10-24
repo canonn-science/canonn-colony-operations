@@ -11,12 +11,53 @@ export interface HistoryRow {
   influence: number | string;
   /** When the snapshot was first seen, ISO 8601. */
   first_seen: string;
+  /** The faction's active states: a JSON string (or array) of `{State}` entries. */
+  active_states?: string | unknown[] | null;
+  /** The faction's pending states, shaped like {@link active_states}. */
+  pending_states?: string | unknown[] | null;
+}
+
+/** One conflict as `/bgs/systems/{address}/conflicts` sends it. */
+export interface ConflictRow {
+  war_type?: string | null;
+  /** `active`, `pending` or `ended`. */
+  status?: string | null;
+  faction_a: string;
+  faction_b: string;
+  first_seen: string;
+  /** Null while the conflict is still open. */
+  ended_at?: string | null;
+  /** `<faction>_won`, or `unknown`/null. */
+  outcome?: string | null;
+  /** The latest tally the tracker saw — it keeps no per-day score. */
+  won_days_a?: number | null;
+  won_days_b?: number | null;
+}
+
+/** A conflict's span on the time axis, for the chart's shaded bands. */
+export interface ConflictSpan {
+  /** Label for the kind: "War", "Civil war" or "Election". */
+  kind: string;
+  /** `election`, or `war` for both war kinds — picks the band's colour. */
+  family: 'war' | 'election';
+  factionA: string;
+  factionB: string;
+  start: number;
+  /** When it ended; null while it is still open. */
+  end: number | null;
+  pending: boolean;
+  /** Who won, once finished and known. */
+  winner: string | null;
+  wonA: number | null;
+  wonB: number | null;
 }
 
 /** A moment and the faction's influence then, as a percentage. */
 export interface HistoryPoint {
   time: number;
   value: number;
+  /** Wars and elections the faction is in at this snapshot, e.g. "War", "Election (pending)". */
+  conflicts: string[];
 }
 
 /** One faction's influence over time. */
@@ -56,7 +97,11 @@ export function buildSeries(rows: readonly HistoryRow[]): FactionSeries[] {
       continue;
     }
     const points = byName.get(row.faction_name) ?? [];
-    points.push({ time, value });
+    points.push({
+      time,
+      value,
+      conflicts: [...conflictsIn(row.active_states, ''), ...conflictsIn(row.pending_states, ' (pending)')],
+    });
     byName.set(row.faction_name, points);
   }
   const rank = (name: string): number => (name === CANONN ? 0 : name === CDSR ? 1 : 2);
@@ -68,6 +113,77 @@ export function buildSeries(rows: readonly HistoryRow[]): FactionSeries[] {
       tracked: name === CANONN || name === CDSR,
       points: points.sort((a, b) => a.time - b.time),
     }));
+}
+
+const CONFLICT_LABELS: Readonly<Record<string, string>> = { war: 'War', civilwar: 'Civil war', election: 'Election' };
+
+/** The wars and elections named in a states field (a JSON string or an array of `{State}` entries), each with `suffix`. */
+function conflictsIn(raw: string | unknown[] | null | undefined, suffix: string): string[] {
+  let entries: unknown = raw;
+  if (typeof raw === 'string') {
+    try {
+      entries = JSON.parse(raw);
+    } catch {
+      return [];
+    }
+  }
+  if (!Array.isArray(entries)) {
+    return [];
+  }
+  const labels: string[] = [];
+  for (const entry of entries) {
+    const record = typeof entry === 'string' ? { State: entry } : (entry as { State?: unknown; state?: unknown } | null);
+    const name = record?.State ?? record?.state;
+    const label = typeof name === 'string' ? CONFLICT_LABELS[name.toLowerCase().replace(/[^a-z]/g, '')] : undefined;
+    if (label && !labels.includes(label + suffix)) {
+      labels.push(label + suffix);
+    }
+  }
+  return labels;
+}
+
+/** The conflicts that have a readable start and a kind we draw, oldest first. */
+export function buildConflictSpans(rows: readonly ConflictRow[]): ConflictSpan[] {
+  const spans: ConflictSpan[] = [];
+  for (const row of rows) {
+    const kind = CONFLICT_LABELS[(row.war_type ?? '').toLowerCase().replace(/[^a-z]/g, '')];
+    const start = Date.parse(row.first_seen);
+    if (!kind || Number.isNaN(start)) {
+      continue;
+    }
+    const end = row.ended_at ? Date.parse(row.ended_at) : Number.NaN;
+    const outcome = (row.outcome ?? '').match(/^(.*)_won$/);
+    spans.push({
+      kind,
+      family: kind === 'Election' ? 'election' : 'war',
+      factionA: shortFactionName(row.faction_a),
+      factionB: shortFactionName(row.faction_b),
+      start,
+      end: Number.isNaN(end) ? null : end,
+      pending: row.status === 'pending',
+      winner: outcome ? shortFactionName(outcome[1]) : null,
+      wonA: row.won_days_a ?? null,
+      wonB: row.won_days_b ?? null,
+    });
+  }
+  return spans.sort((a, b) => a.start - b.start);
+}
+
+/** What the tooltip says about a conflict at `time`: its sides, then the latest score (open) or the result (finished). */
+export function describeConflict(span: ConflictSpan): string {
+  const sides = `${span.kind}${span.pending ? ' (pending)' : ''}: ${span.factionA} vs ${span.factionB}`;
+  if (span.end !== null) {
+    return `${sides} — ${span.winner ? `${span.winner} won` : 'ended'}`;
+  }
+  if (span.wonA !== null && span.wonB !== null && !span.pending) {
+    return `${sides} — latest ${span.wonA}–${span.wonB} days`;
+  }
+  return sides;
+}
+
+/** The conflicts open at `time`. */
+export function conflictsAt(spans: readonly ConflictSpan[], time: number): ConflictSpan[] {
+  return spans.filter(s => s.start <= time && (s.end === null || time <= s.end));
 }
 
 /** The tracker's average-influence block (0-1 fractions, null where it has none) as reference lines. */
@@ -90,10 +206,15 @@ export function snapshotTimes(series: readonly FactionSeries[]): number[] {
 
 /** The faction's influence in effect at `time`: its reading at that snapshot, else its latest earlier one; null before its first. */
 export function valueAt(series: FactionSeries, time: number): number | null {
-  let found: number | null = null;
+  return pointAt(series, time)?.value ?? null;
+}
+
+/** The faction's reading in effect at `time` (same rule as {@link valueAt}); null before its first. */
+export function pointAt(series: FactionSeries, time: number): HistoryPoint | null {
+  let found: HistoryPoint | null = null;
   for (const point of series.points) {
     if (point.time <= time) {
-      found = point.value;
+      found = point;
     } else {
       break;
     }

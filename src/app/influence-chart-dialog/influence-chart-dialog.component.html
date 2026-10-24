@@ -38,17 +38,39 @@
         }
       </section>
 
+      <div class="chart-hint">
+        @if (zoom()) {
+          <button mat-stroked-button type="button" (click)="resetZoom()">Reset zoom</button>
+        } @else {
+          Drag across the chart to zoom in on a period.
+        }
+        @if (hasWars()) {
+          <span class="band-key"><span class="band-swatch"></span>War</span>
+        }
+        @if (hasElections()) {
+          <span class="band-key"><span class="band-swatch band-swatch--election"></span>Election</span>
+        }
+      </div>
+
       <div class="chart-wrap">
         <svg
           class="chart"
           [attr.viewBox]="'0 0 ' + width + ' ' + height"
           role="img"
           tabindex="0"
-          [attr.aria-label]="'Influence history of ' + systemName + '. Use the left and right arrow keys to step through the snapshots.'"
+          [attr.aria-label]="'Influence history of ' + systemName + '. Use the left and right arrow keys to step through the snapshots. Drag to zoom in.'"
+          (pointerdown)="onPointerDown($event)"
           (pointermove)="onPointerMove($event)"
+          (pointerup)="onPointerUp()"
+          (pointercancel)="onPointerCancel()"
           (pointerleave)="onPointerLeave()"
           (keydown)="onKeyDown($event)"
         >
+          <defs>
+            <clipPath id="plot-clip">
+              <rect [attr.x]="plot.left" [attr.y]="plot.top" [attr.width]="plot.right - plot.left" [attr.height]="plot.bottom - plot.top + 4" />
+            </clipPath>
+          </defs>
           @for (tick of yTicks(); track tick.value) {
             <line class="grid" [attr.x1]="plot.left" [attr.x2]="plot.right" [attr.y1]="tick.y" [attr.y2]="tick.y" />
             <text class="axis-label" [attr.x]="plot.left - 8" [attr.y]="tick.y" text-anchor="end" dominant-baseline="middle">
@@ -60,6 +82,21 @@
             <text class="axis-label" [attr.x]="tick.x" [attr.y]="plot.bottom + 18" text-anchor="middle">{{ tick.label }}</text>
           }
 
+          @if (selectionBox(); as box) {
+            <rect class="selection" [attr.x]="box.x" [attr.y]="plot.top" [attr.width]="box.width" [attr.height]="plot.bottom - plot.top" />
+          }
+
+          <g clip-path="url(#plot-clip)">
+          @for (band of bands(); track $index) {
+            <rect
+              class="band"
+              [class.band--election]="band.family === 'election'"
+              [attr.x]="band.x"
+              [attr.y]="plot.top"
+              [attr.width]="band.width"
+              [attr.height]="plot.bottom - plot.top"
+            />
+          }
           @for (line of lines(); track line.key) {
             @if (line.visible) {
               @if (line.path) {
@@ -76,6 +113,7 @@
               }
             }
           }
+          </g>
 
           @if (tooltip(); as tip) {
             <line class="guide" [attr.x1]="tip.x" [attr.x2]="tip.x" [attr.y1]="plot.top" [attr.y2]="plot.bottom" />
@@ -88,12 +126,14 @@
         @if (tooltip(); as tip) {
           <div class="chart-tooltip" [class.chart-tooltip--left]="tip.percent > 55" [style.left.%]="tip.percent">
             <div class="tooltip-when">{{ tip.when }}</div>
+            @for (conflict of tip.conflicts; track $index) {
+              <div class="tooltip-conflict">{{ conflict }}</div>
+            }
             @for (row of tip.rows; track row.label) {
               <div class="tooltip-row">
                 <span class="tooltip-swatch" [style.background-color]="row.colour"></span>
                 <span class="tooltip-label">{{ row.label }}</span>
-                <span class="tooltip-value">{{ row.value }}</span>
-              </div>
+                <span class="tooltip-value">{{ row.value }}</span>              </div>
             }
           </div>
         }

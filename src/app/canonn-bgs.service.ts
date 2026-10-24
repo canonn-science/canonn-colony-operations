@@ -8,7 +8,7 @@ import {
 import { ArchitectInfo, ArchitectRegistryRow } from './data/architect-registry';
 import { isHomeSystem } from './data/home-systems';
 import { ApiTrend, InfluenceChange, influenceChangeFrom } from './data/influence-change';
-import { HistoryRow } from './data/influence-history';
+import { ConflictRow, HistoryRow } from './data/influence-history';
 import { logger } from './data/logger';
 import {
   BgsConfig,
@@ -947,6 +947,17 @@ export class CanonnBgsService {
     const url = `${QUERY_BASE}/bgs/systems/${encodeURIComponent(systemAddress)}/history`;
     const history = await this.resilientGet<{ data?: HistoryRow[] }>(url);
     return history.data ?? [];
+  }
+
+  /**
+   * One system's conflicts — open and finished, each with its span and latest days-won tally —
+   * for the history chart's shaded bands. The tracker keeps only the latest tally per conflict,
+   * not a per-day score.
+   */
+  async getSystemConflicts(systemAddress: string): Promise<ConflictRow[]> {
+    const url = `${QUERY_BASE}/bgs/systems/${encodeURIComponent(systemAddress)}/conflicts`;
+    const conflicts = await this.resilientGet<{ data?: ConflictRow[] }>(url);
+    return conflicts.data ?? [];
   }
 
   /** Name-suggestion + coordinate lookup, for the "sort by distance from system" search box. */
