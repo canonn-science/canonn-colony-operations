@@ -17,6 +17,8 @@ import {
   ArchitectSubmission,
 } from '../data/architect-form';
 import { ArchitectRegistryRow, architectNames, findArchitectProfile, suggestArchitects } from '../data/architect-registry';
+import { isCanonnMember, mergeKnownNames } from '../data/canonn-members';
+import { CANONN_MEMBERS } from '../data/canonn-members-generated';
 import { readYourName, writeYourName } from '../data/your-name';
 
 /** The system the dialog is assigning an architect to. */
@@ -90,7 +92,7 @@ export class AssignArchitectDialogComponent {
   protected readonly registryLoading = signal(true);
 
   private readonly registry = signal<readonly ArchitectRegistryRow[]>([]);
-  private readonly knownArchitects = computed(() => architectNames(this.registry()));
+  private readonly knownArchitects = computed(() => mergeKnownNames(architectNames(this.registry()), CANONN_MEMBERS));
 
   /**
    * The form's values as signals, so the defaulting below can be expressed as computeds. They
@@ -171,13 +173,22 @@ export class AssignArchitectDialogComponent {
     void this.loadRegistry();
 
     // Pre-select a known architect's most recent affiliation, until the user picks one themselves.
+    // Registry history always wins; a Canonn/CDSR roster match only applies when there's no
+    // history at all, so it never overrides a different affiliation recorded for this architect.
     effect(() => {
       const recorded = this.profile()?.affiliation;
       if (this.affiliationChosenByUser) {
         return;
       }
-      const value = recorded && KNOWN_AFFILIATIONS.has(recorded) ? recorded : AFFILIATION_UNKNOWN;
-      this.setAffiliation(value);
+      if (recorded && KNOWN_AFFILIATIONS.has(recorded)) {
+        this.setAffiliation(recorded);
+        return;
+      }
+      if (isCanonnMember(CANONN_MEMBERS, this.architectValue())) {
+        this.setAffiliation(AFFILIATION_CANONN_MEMBER);
+        return;
+      }
+      this.setAffiliation(AFFILIATION_UNKNOWN);
     });
 
     // Keep the preferred faction on its default as the architect and affiliation change.

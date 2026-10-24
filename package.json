@@ -4,10 +4,11 @@
   "scripts": {
     "ng": "ng",
     "generate-build-info": "node scripts/generate-build-info.js",
+    "fetch-canonn-members": "node scripts/fetch-canonn-members.js",
     "start": "ng serve",
-    "prestart": "npm run generate-build-info",
+    "prestart": "npm run generate-build-info && npm run fetch-canonn-members",
     "build": "ng build",
-    "prebuild": "npm run generate-build-info",
+    "prebuild": "npm run generate-build-info && npm run fetch-canonn-members",
     "watch": "ng build --watch --configuration development",
     "test": "ng test"
   },
