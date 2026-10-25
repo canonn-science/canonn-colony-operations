@@ -38,14 +38,14 @@ describe('HomeComponent tabs', () => {
     expect(active()).toBe('Priorities');
   });
 
-  it('moves a clicked tab to the front and the one just left to the end', async () => {
+  it('keeps the tabs in a fixed order when clicking between them', async () => {
     await create();
     await click('Factions');
-    expect(labels()).toEqual(['Factions', 'Architects', 'Priorities']);
+    expect(labels()).toEqual(['Priorities', 'Architects', 'Factions']);
     expect(active()).toBe('Factions');
 
     await click('Architects');
-    expect(labels()).toEqual(['Architects', 'Priorities', 'Factions']);
+    expect(labels()).toEqual(['Priorities', 'Architects', 'Factions']);
     expect(active()).toBe('Architects');
   });
 });

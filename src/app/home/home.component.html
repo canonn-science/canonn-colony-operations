@@ -21,11 +21,11 @@
   animationDuration="0ms"
   [mat-stretch-tabs]="false"
   preserveContent
-  [selectedIndex]="0"
+  [selectedIndex]="selectedIndex()"
   (selectedIndexChange)="selectTab($event)"
   aria-label="Sections"
 >
-  @for (tab of tabOrder(); track tab) {
+  @for (tab of tabOrder; track tab) {
     <mat-tab [label]="tabLabels[tab]">
       <ng-template matTabContent>
         @switch (tab) {

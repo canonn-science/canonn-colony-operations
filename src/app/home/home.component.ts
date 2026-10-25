@@ -43,26 +43,22 @@ export class HomeComponent implements OnDestroy {
   private readonly table = viewChild(BgsTableComponent);
 
   protected readonly tabLabels = TAB_LABELS;
-  /** The tabs left to right. The selected tab is always first: picking another moves it to the front and the one just left to the end. */
-  protected readonly tabOrder = signal<readonly TabId[]>(TAB_PARAMS);
-  private readonly currentTab = computed(() => this.tabOrder()[0]);
+  /** The tabs left to right, in a fixed order. */
+  protected readonly tabOrder: readonly TabId[] = TAB_PARAMS;
+  protected readonly selectedIndex = signal(0);
+  private readonly currentTab = computed(() => this.tabOrder[this.selectedIndex()]);
 
   constructor() {
-    // A shared link's `tab` param opens that tab, rearranged as if it had been clicked.
+    // A shared link's `tab` param opens that tab.
     const wanted = new URLSearchParams(window.location.search).get('tab');
     const index = TAB_PARAMS.findIndex(t => t === wanted);
     if (index > 0) {
-      this.selectTab(index);
+      this.selectedIndex.set(index);
     }
   }
 
   protected selectTab(index: number): void {
-    const order = this.tabOrder();
-    if (index <= 0 || index >= order.length) {
-      return;
-    }
-    const [current, picked] = [order[0], order[index]];
-    this.tabOrder.set([picked, ...order.filter(t => t !== current && t !== picked), current]);
+    this.selectedIndex.set(index);
   }
 
   ngOnDestroy(): void {
