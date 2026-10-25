@@ -1,3 +1,18 @@
+.assign-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+
+  h2[mat-dialog-title] {
+    margin: 0;
+  }
+}
+
+.assign-link {
+  color: var(--color-text-muted);
+}
+
 .assign-form {
   display: flex;
   flex-direction: column;

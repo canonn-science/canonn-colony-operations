@@ -1,6 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { MatDialog } from '@angular/material/dialog';
+import { AssignArchitectDialogComponent } from '../assign-architect-dialog/assign-architect-dialog.component';
 import { BgsRow, BgsSnapshot, CanonnBgsService } from '../canonn-bgs.service';
 import { BgsConfig, NO_PRIORITY } from '../data/priority';
 import { InfluenceChartDialogComponent } from '../influence-chart-dialog/influence-chart-dialog.component';
@@ -537,6 +538,35 @@ describe('BgsTableComponent over the whole list', () => {
 
       await expect(createWith([row('Quiet')])).resolves.not.toThrow();
       expect(component['sortColumn']()).toBe('priority');
+    });
+  });
+
+  describe('shared assign link', () => {
+    const originalHref = window.location.href;
+
+    afterEach(() => {
+      history.pushState({}, '', originalHref);
+    });
+
+    it('opens the Assign Architect dialog for the system an `assign` link names', async () => {
+      dialogOpen.mockReturnValue({ afterClosed: () => ({ subscribe: () => {} }) });
+      history.pushState({}, '', '/?assign=System%20005');
+
+      await createWith([row('System 005'), row('System 006')]);
+
+      expect(dialogOpen).toHaveBeenCalledTimes(1);
+      const [dialogComponent, config] = dialogOpen.mock.calls[0];
+      expect(dialogComponent).toBe(AssignArchitectDialogComponent);
+      expect(config.data.row.systemName).toBe('System 005');
+    });
+
+    it('ignores an unknown system name', async () => {
+      dialogOpen.mockReturnValue({ afterClosed: () => ({ subscribe: () => {} }) });
+      history.pushState({}, '', '/?assign=Nowhere');
+
+      await createWith([row('System 005')]);
+
+      expect(dialogOpen).not.toHaveBeenCalled();
     });
   });
 });

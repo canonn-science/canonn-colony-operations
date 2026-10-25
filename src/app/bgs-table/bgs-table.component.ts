@@ -40,6 +40,7 @@ import {
 } from '../influence-chart-dialog/influence-chart-dialog.component';
 import { InfluenceSparklineComponent } from '../influence-sparkline/influence-sparkline.component';
 import { LoadingTerminalComponent } from '../loading-terminal/loading-terminal.component';
+import { ASSIGN_PARAM } from '../data/assign-architect-link';
 import { PRIORITY_PARAM } from '../data/priority-link';
 import { PriorityCardDialogComponent, PriorityCardDialogData } from '../priority-card-dialog/priority-card-dialog.component';
 import {
@@ -441,6 +442,7 @@ export class BgsTableComponent implements OnDestroy {
         this.defaultAnchor.set(snapshot.rows[0]);
       }
       this.openSharedPriorityCard(snapshot.rows);
+      this.openSharedAssignDialog(snapshot.rows);
     } catch (error) {
       this.errorMessage.set(
         error instanceof Error ? `Failed to load BGS data: ${error.message}` : 'Failed to load BGS data.',
@@ -456,6 +458,15 @@ export class BgsTableComponent implements OnDestroy {
     const row = wanted ? rows.find(r => r.systemName.toLowerCase() === wanted) : undefined;
     if (row) {
       this.openPriorityCard(row);
+    }
+  }
+
+  /** Opens the Assign Architect dialog a shared link's `assign` param names, once the list is in; an unknown system is ignored. */
+  private openSharedAssignDialog(rows: readonly BgsRow[]): void {
+    const wanted = new URLSearchParams(window.location.search).get(ASSIGN_PARAM)?.toLowerCase();
+    const row = wanted ? rows.find(r => r.systemName.toLowerCase() === wanted) : undefined;
+    if (row) {
+      this.openAssignDialog(row);
     }
   }
 

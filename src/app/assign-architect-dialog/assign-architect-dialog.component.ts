@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, effect, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnDestroy, computed, effect, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { MatAutocompleteModule } from '@angular/material/autocomplete';
@@ -8,7 +8,11 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatSelectModule } from '@angular/material/select';
+import { MatTooltipModule } from '@angular/material/tooltip';
+import { FaIconComponent } from '@fortawesome/angular-fontawesome';
+import { faCheck, faLink } from '@fortawesome/free-solid-svg-icons';
 import { BgsRow, CANONN_FACTION, CDSR_FACTION, CanonnBgsService } from '../canonn-bgs.service';
+import { assignArchitectShareUrl } from '../data/assign-architect-link';
 import {
   AFFILIATION_CANONN_MEMBER,
   AFFILIATION_NOT_A_COLONY,
@@ -60,12 +64,14 @@ interface FactionDefault {
     MatInputModule,
     MatProgressSpinnerModule,
     MatSelectModule,
+    MatTooltipModule,
+    FaIconComponent,
   ],
   templateUrl: './assign-architect-dialog.component.html',
   styleUrl: './assign-architect-dialog.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class AssignArchitectDialogComponent {
+export class AssignArchitectDialogComponent implements OnDestroy {
   private readonly bgsService = inject(CanonnBgsService);
   private readonly dialogRef = inject(MatDialogRef<AssignArchitectDialogComponent, ArchitectSubmission>);
   private readonly data = inject<AssignArchitectDialogData>(MAT_DIALOG_DATA);
@@ -74,6 +80,10 @@ export class AssignArchitectDialogComponent {
   protected readonly affiliationOptions = AFFILIATION_OPTIONS;
   protected readonly dontKnowFaction = DONT_KNOW_FACTION;
   protected readonly notAColony = AFFILIATION_NOT_A_COLONY;
+  protected readonly faCheck = faCheck;
+  protected readonly faLink = faLink;
+  protected readonly linkCopied = signal(false);
+  private linkCopiedHandle: ReturnType<typeof setTimeout> | undefined;
 
   protected readonly form = new FormGroup({
     yourName: new FormControl('', {
@@ -226,6 +236,23 @@ export class AssignArchitectDialogComponent {
         control.enable({ emitEvent: false });
       }
     });
+  }
+
+  ngOnDestroy(): void {
+    clearTimeout(this.linkCopiedHandle);
+  }
+
+  /** Copies a link that reopens the site with this dialog already open for this system. */
+  protected async copyLink(): Promise<void> {
+    const url = assignArchitectShareUrl(window.location.origin, window.location.pathname, this.systemName);
+    try {
+      await navigator.clipboard.writeText(url);
+    } catch {
+      return;
+    }
+    this.linkCopied.set(true);
+    clearTimeout(this.linkCopiedHandle);
+    this.linkCopiedHandle = setTimeout(() => this.linkCopied.set(false), 1500);
   }
 
   protected onAffiliationChosen(): void {

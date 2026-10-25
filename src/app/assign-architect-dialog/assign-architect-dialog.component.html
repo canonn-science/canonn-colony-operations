@@ -1,4 +1,16 @@
-<h2 mat-dialog-title>Assign an architect</h2>
+<div class="assign-title-row">
+  <h2 mat-dialog-title>Assign an architect</h2>
+  <button
+    mat-icon-button
+    type="button"
+    class="assign-link"
+    (click)="copyLink()"
+    [matTooltip]="linkCopied() ? 'Link copied!' : 'Copy a link to this dialog'"
+    [attr.aria-label]="linkCopied() ? 'Link copied' : 'Copy a link to this dialog'"
+  >
+    <fa-icon [icon]="linkCopied() ? faCheck : faLink" aria-hidden="true"></fa-icon>
+  </button>
+</div>
 
 <mat-dialog-content>
   <form class="assign-form" [formGroup]="form" (ngSubmit)="send()">
