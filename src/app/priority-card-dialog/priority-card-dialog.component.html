@@ -9,6 +9,15 @@
         <span>Score {{ row.priority.score }}</span>
       }
       <a [href]="inara" target="_blank" rel="noopener">Open in Inara ↗</a>
+      <button
+        type="button"
+        class="pc-link"
+        (click)="copyLink()"
+        [matTooltip]="linkCopied() ? 'Link copied!' : 'Copy link'"
+        [attr.aria-label]="linkCopied() ? 'Link copied' : 'Copy a link to this priority card'"
+      >
+        <fa-icon [icon]="linkCopied() ? faCheck : faLink" aria-hidden="true"></fa-icon>
+      </button>
     </div>
     <h2 mat-dialog-title class="pc-title">{{ row.systemName }}</h2>
     <p class="pc-headline">{{ s.headline }}</p>

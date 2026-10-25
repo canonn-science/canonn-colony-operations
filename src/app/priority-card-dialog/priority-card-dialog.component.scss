@@ -42,6 +42,21 @@
   }
 }
 
+.pc-link {
+  padding: 0 2px;
+  border: 0;
+  background: none;
+  color: var(--pc-canonn);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+
+  &:focus-visible {
+    outline: 2px solid var(--pc-canonn);
+    outline-offset: 2px;
+  }
+}
+
 .pc-tier {
   font-weight: 600;
   padding: 2px 8px;

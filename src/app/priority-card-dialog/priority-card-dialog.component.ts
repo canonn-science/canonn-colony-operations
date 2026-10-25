@@ -1,11 +1,15 @@
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnDestroy, computed, inject, signal } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MAT_DIALOG_DATA, MatDialog, MatDialogModule } from '@angular/material/dialog';
+import { MatTooltipModule } from '@angular/material/tooltip';
+import { FaIconComponent } from '@fortawesome/angular-fontawesome';
+import { faCheck, faLink } from '@fortawesome/free-solid-svg-icons';
 import { BgsRow, CANONN_FACTION, CDSR_FACTION } from '../canonn-bgs.service';
 import {
   InfluenceChartDialogComponent,
   InfluenceChartDialogData,
 } from '../influence-chart-dialog/influence-chart-dialog.component';
+import { priorityShareUrl } from '../data/priority-link';
 import { PriorityStory, StoryRival, buildPriorityStory } from '../data/priority-story';
 
 /** The row whose card to show, and the whole snapshot for the cross-system history. */
@@ -25,12 +29,12 @@ const SPARK_H = 72;
  */
 @Component({
   selector: 'app-priority-card-dialog',
-  imports: [MatButtonModule, MatDialogModule],
+  imports: [MatButtonModule, MatDialogModule, MatTooltipModule, FaIconComponent],
   templateUrl: './priority-card-dialog.component.html',
   styleUrl: './priority-card-dialog.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class PriorityCardDialogComponent {
+export class PriorityCardDialogComponent implements OnDestroy {
   private readonly data = inject<PriorityCardDialogData>(MAT_DIALOG_DATA);
   private readonly dialog = inject(MatDialog);
 
@@ -44,6 +48,10 @@ export class PriorityCardDialogComponent {
 
   protected readonly openRival = signal<string | null>(null);
   protected readonly copied = signal(false);
+  protected readonly linkCopied = signal(false);
+  private linkCopiedHandle: ReturnType<typeof setTimeout> | undefined;
+  protected readonly faLink = faLink;
+  protected readonly faCheck = faCheck;
   protected readonly hoverFaction = signal<string | null>(null);
   protected readonly hoverPoint = signal<number | null>(null);
 
@@ -67,6 +75,10 @@ export class PriorityCardDialogComponent {
     if (!name) return null;
     return this.row.factionDetails.find((f) => f.name === name) ?? null;
   });
+
+  ngOnDestroy(): void {
+    clearTimeout(this.linkCopiedHandle);
+  }
 
   protected colourOf(faction: string): string {
     return faction === CANONN_FACTION
@@ -109,6 +121,19 @@ export class PriorityCardDialogComponent {
       if (Math.abs(p.x - x) < Math.abs(s.pts[best].x - x)) best = i;
     });
     this.hoverPoint.set(best);
+  }
+
+  /** Copies a link that reopens the site sorted by distance from this system with this card open. */
+  protected async copyLink(): Promise<void> {
+    const url = priorityShareUrl(window.location.origin, window.location.pathname, this.row.systemName);
+    try {
+      await navigator.clipboard.writeText(url);
+    } catch {
+      return;
+    }
+    this.linkCopied.set(true);
+    clearTimeout(this.linkCopiedHandle);
+    this.linkCopiedHandle = setTimeout(() => this.linkCopied.set(false), 1500);
   }
 
   protected async copyDiscord(): Promise<void> {
