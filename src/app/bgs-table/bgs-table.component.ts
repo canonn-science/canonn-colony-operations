@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, HostListener, OnDestroy, computed, effect, inject, output, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, HostListener, OnDestroy, OnInit, computed, effect, inject, input, output, signal } from '@angular/core';
 import { DecimalPipe } from '@angular/common';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormControl, ReactiveFormsModule } from '@angular/forms';
@@ -26,6 +26,7 @@ import {
   CANONN_FACTION,
   CDSR_FACTION,
   CanonnBgsService,
+  SystemsTier,
   TypeaheadSystem,
   rowWithAssignment,
 } from '../canonn-bgs.service';
@@ -165,7 +166,7 @@ export function formatWait(ms: number): string {
   styleUrl: './bgs-table.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class BgsTableComponent implements OnDestroy {
+export class BgsTableComponent implements OnInit, OnDestroy {
   private readonly bgsService = inject(CanonnBgsService);
   private readonly dialog = inject(MatDialog);
 
@@ -196,6 +197,8 @@ export class BgsTableComponent implements OnDestroy {
   protected readonly loading = signal(true);
   /** Tells the page shell when the list is loading, so its logo can animate. */
   readonly loadingChange = output<boolean>();
+  /** Narrows the list to one priority tier, fetched server-side; unset shows every system. */
+  readonly tier = input<SystemsTier>();
   /** The system name last copied to the clipboard, shown as a brief checkmark on its row. */
   protected readonly copiedSystem = signal<string | null>(null);
   private copiedResetHandle: ReturnType<typeof setTimeout> | undefined;
@@ -393,8 +396,6 @@ export class BgsTableComponent implements OnDestroy {
   });
 
   constructor() {
-    void this.loadSystems();
-    void this.loadArchitectFilterNames();
     this.architectFilterControl.setValue(readYourName());
     this.applyFiltersFromUrl();
 
@@ -421,6 +422,12 @@ export class BgsTableComponent implements OnDestroy {
       .subscribe(value => this.factionFilterQuery.set(value));
   }
 
+  /** Loads only once the `tier` input is set (it isn't during construction), so the first request is the right one. */
+  ngOnInit(): void {
+    void this.loadSystems();
+    void this.loadArchitectFilterNames();
+  }
+
   ngOnDestroy(): void {
     if (this.suggestionDebounceTimer !== null) {
       clearTimeout(this.suggestionDebounceTimer);
@@ -436,7 +443,7 @@ export class BgsTableComponent implements OnDestroy {
     this.loading.set(true);
     this.errorMessage.set(null);
     try {
-      const snapshot = await this.bgsService.getSystems();
+      const snapshot = await this.bgsService.getSystems(this.tier());
       this.allRows.set(snapshot.rows);
       if (this.defaultAnchor() === null && snapshot.rows.length > 0) {
         this.defaultAnchor.set(snapshot.rows[0]);
@@ -486,7 +493,7 @@ export class BgsTableComponent implements OnDestroy {
     this.lastRefreshAt = Date.now();
     this.refreshing.set(true);
     try {
-      const snapshot = await this.bgsService.refreshSystems();
+      const snapshot = await this.bgsService.refreshSystems(this.tier());
       this.allRows.set(snapshot.rows);
       const pages = this.displayTotalPages();
       if (pages !== null && this.pageIndex() >= pages) {
@@ -1013,7 +1020,7 @@ export class BgsTableComponent implements OnDestroy {
   /** Loads the architect registry's names once, for the Architect quick filter's typeahead. */
   private async loadArchitectFilterNames(): Promise<void> {
     try {
-      this.architectRegistryNames.set(architectNames(await this.bgsService.getArchitectRegistry()));
+      this.architectRegistryNames.set(architectNames(await this.bgsService.getArchitectRegistry(this.tier())));
     } catch {
       // Suggestions are a convenience; the filter's free-text entry still works without them.
     }

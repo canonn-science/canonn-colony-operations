@@ -58,7 +58,7 @@ interface FakeApi {
 /** A stand-in for the Cloud Function: the whole-list endpoint over `api.records`, and nothing else. */
 function fakeFetch(api: FakeApi): (url: string) => Promise<Response> {
   return (url: string) => {
-    if (url === SYSTEMS_URL) {
+    if (url === SYSTEMS_URL || url.startsWith(`${SYSTEMS_URL}&tier=`)) {
       const body = {
         data: api.records,
         total: api.records.length,
@@ -123,6 +123,29 @@ describe('CanonnBgsService loading the whole list', () => {
     expect(snapshot.generatedAt).toBe('2026-10-14T09:30:12.123456');
     expect(snapshot.config).toEqual(CONFIG);
     expect(listRequests()).toEqual([SYSTEMS_URL]);
+  });
+
+  it('asks only for the P0 systems when given that tier, and keeps that list apart from the full one', async () => {
+    await service.getSystems('P0');
+    await service.getSystems('P0');
+    expect(listRequests()).toEqual([`${SYSTEMS_URL}&tier=P0`]);
+
+    await service.getSystems();
+    expect(listRequests()).toEqual([`${SYSTEMS_URL}&tier=P0`, SYSTEMS_URL]);
+  });
+
+  it('falls back to the next tier down when a tier has no systems', async () => {
+    const real = fetchMock.getMockImplementation() as (url: string) => Promise<Response>;
+    fetchMock.mockImplementation((url: string) =>
+      url.endsWith('&tier=P0') || url.endsWith('&tier=P1')
+        ? Promise.resolve(textResponse(JSON.stringify({ data: [], total: 0, config: CONFIG })))
+        : real(url),
+    );
+
+    const snapshot = await service.getSystems('P0');
+
+    expect(snapshot.rows).toHaveLength(250);
+    expect(listRequests()).toEqual([`${SYSTEMS_URL}&tier=P0`, `${SYSTEMS_URL}&tier=P1`, `${SYSTEMS_URL}&tier=P2`]);
   });
 
   it('needs nothing but that one request: the architects and watchlist come with the systems', async () => {

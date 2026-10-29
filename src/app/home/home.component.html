@@ -30,6 +30,9 @@
       <ng-template matTabContent>
         @switch (tab) {
           @case ('priorities') {
+            <app-bgs-table tier="P0" (loadingChange)="loading.set($event)"></app-bgs-table>
+          }
+          @case ('all') {
             <app-bgs-table (loadingChange)="loading.set($event)"></app-bgs-table>
           }
           @case ('architects') {

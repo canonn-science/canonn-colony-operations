@@ -30,6 +30,9 @@ const QUERY_BASE = 'https://us-central1-canonn-api-236217.cloudfunctions.net/que
  * leaves out the `sparkline` the influence columns draw, for a saving of a few percent.)
  */
 const BGS_SYSTEMS_URL = `${QUERY_BASE}/bgs/systems?view=all`;
+/** The priority tiers the list can be narrowed to server-side (`&tier=`), most urgent first; no tier means every system. */
+const SYSTEMS_TIERS = ['P0', 'P1', 'P2', 'P3'] as const;
+export type SystemsTier = (typeof SYSTEMS_TIERS)[number];
 const TYPEAHEAD_ENDPOINT = `${QUERY_BASE}/typeahead`;
 
 /** Default per-request timeout for remote API calls (ms). */
@@ -895,12 +898,12 @@ function overrideEntries(record: BgsSystemRecord): PriorityWatchlistEntry[] {
  */
 @Injectable({ providedIn: 'root' })
 export class CanonnBgsService {
-  /** The list as last loaded (patched for local assignments); stays until a newer one replaces it. */
-  private systemsPromise?: Promise<BgsSnapshot>;
-  /** When {@link systemsPromise} was fetched (epoch ms). */
-  private loadedAt = 0;
-  /** A fetch that is under way, so overlapping callers share one request. */
-  private inFlight?: Promise<BgsSnapshot>;
+  /** Each list as last loaded (patched for local assignments), by tier (`''` is every system); stays until a newer one replaces it. */
+  private readonly systemsPromises = new Map<string, Promise<BgsSnapshot>>();
+  /** When each entry of {@link systemsPromises} was fetched (epoch ms). */
+  private readonly loadedAt = new Map<string, number>();
+  /** Fetches that are under way, so overlapping callers share one request. */
+  private readonly inFlight = new Map<string, Promise<BgsSnapshot>>();
   private readonly loadLogLines = signal<readonly string[]>([]);
   /** What loading the list is really doing, in order — for a progress display while it waits. */
   readonly loadLog = this.loadLogLines.asReadonly();
@@ -908,34 +911,39 @@ export class CanonnBgsService {
   private registryRows: ArchitectRegistryRow[] = [];
 
   /**
-   * Every system: from memory if it was loaded less than {@link SYSTEMS_MAX_AGE_MS} ago,
-   * otherwise fetched afresh. A failed fetch isn't remembered, so the next call tries again.
+   * Every system (or just those of one `tier`): from memory if it was loaded less than
+   * {@link SYSTEMS_MAX_AGE_MS} ago, otherwise fetched afresh. A failed fetch isn't remembered,
+   * so the next call tries again.
    */
-  getSystems(): Promise<BgsSnapshot> {
-    if (this.systemsPromise && Date.now() - this.loadedAt < SYSTEMS_MAX_AGE_MS) {
-      return this.systemsPromise;
+  getSystems(tier?: SystemsTier): Promise<BgsSnapshot> {
+    const key = tier ?? '';
+    const held = this.systemsPromises.get(key);
+    if (held && Date.now() - (this.loadedAt.get(key) ?? 0) < SYSTEMS_MAX_AGE_MS) {
+      return held;
     }
-    if (!this.inFlight) {
-      const fetching = this.fetchSystems().then(snapshot => {
-        this.systemsPromise = Promise.resolve(snapshot);
-        this.loadedAt = Date.now();
+    let fetching = this.inFlight.get(key);
+    if (!fetching) {
+      const started = this.fetchSystems(tier).then(snapshot => {
+        this.systemsPromises.set(key, Promise.resolve(snapshot));
+        this.loadedAt.set(key, Date.now());
         return snapshot;
       });
-      this.inFlight = fetching;
+      fetching = started;
+      this.inFlight.set(key, started);
       const done = () => {
-        if (this.inFlight === fetching) {
-          this.inFlight = undefined;
+        if (this.inFlight.get(key) === started) {
+          this.inFlight.delete(key);
         }
       };
-      fetching.then(done, done);
+      started.then(done, done);
     }
-    return this.inFlight;
+    return fetching;
   }
 
   /** Fetches a fresh list now, even though the held one is still young; overlapping callers still share one request. */
-  refreshSystems(): Promise<BgsSnapshot> {
-    this.loadedAt = 0;
-    return this.getSystems();
+  refreshSystems(tier?: SystemsTier): Promise<BgsSnapshot> {
+    this.loadedAt.delete(tier ?? '');
+    return this.getSystems(tier);
   }
 
   /**
@@ -968,10 +976,11 @@ export class CanonnBgsService {
   /**
    * The Architect Registry — what the tracker holds as each system's latest answer, plus
    * assignments made here — for the Assign dialog's architect-name suggestions and for what a
-   * known architect last answered. Waits for the system list it is read from.
+   * known architect last answered. Waits for the system list it is read from: a `tier`'s list
+   * (cheap, so the page can start on it) covers only that tier's systems, no tier covers them all.
    */
-  async getArchitectRegistry(): Promise<readonly ArchitectRegistryRow[]> {
-    await this.getSystems();
+  async getArchitectRegistry(tier?: SystemsTier): Promise<readonly ArchitectRegistryRow[]> {
+    await this.getSystems(tier);
     return [...this.registryRows];
   }
 
@@ -1020,18 +1029,17 @@ export class CanonnBgsService {
       { ...answers, at: Date.now() },
     ]);
 
-    const loaded = this.systemsPromise;
-    if (loaded) {
+    for (const [key, loaded] of this.systemsPromises) {
       const patched = loaded.then(snapshot => ({
         ...snapshot,
         rows: snapshot.rows.map(r => (r.systemName === answers.systemName ? rowWithAssignment(r, answers) : r)),
       }));
       patched.catch(() => {
-        if (this.systemsPromise === patched) {
-          this.systemsPromise = undefined;
+        if (this.systemsPromises.get(key) === patched) {
+          this.systemsPromises.delete(key);
         }
       });
-      this.systemsPromise = patched;
+      this.systemsPromises.set(key, patched);
     }
   }
 
@@ -1039,10 +1047,31 @@ export class CanonnBgsService {
     this.loadLogLines.update(lines => [...lines, message]);
   }
 
-  private async fetchSystems(): Promise<BgsSnapshot> {
+  /**
+   * The raw list for `tier`. A tier with no systems in it falls through to the next one down
+   * (P0, then P1, P2, P3), so a tier's tab is never empty while a lower tier has systems; the
+   * last tier's answer is returned even when empty.
+   */
+  private async fetchTier(tier?: SystemsTier): Promise<BgsAllResponse> {
+    if (!tier) {
+      this.log('Asking the BGS tracker for every system in one go...');
+      return this.resilientGet<BgsAllResponse>(BGS_SYSTEMS_URL, SYSTEMS_TIMEOUT_MS);
+    }
+    const tiers = SYSTEMS_TIERS.slice(SYSTEMS_TIERS.indexOf(tier));
+    for (const [i, candidate] of tiers.entries()) {
+      this.log(`Asking the BGS tracker for the ${candidate} systems...`);
+      const response = await this.resilientGet<BgsAllResponse>(`${BGS_SYSTEMS_URL}&tier=${candidate}`, SYSTEMS_TIMEOUT_MS);
+      if (response.data.length > 0 || i === tiers.length - 1) {
+        return response;
+      }
+      this.log(`No ${candidate} systems; trying ${tiers[i + 1]}...`);
+    }
+    throw new Error('unreachable');
+  }
+
+  private async fetchSystems(tier?: SystemsTier): Promise<BgsSnapshot> {
     this.loadLogLines.set([]);
-    this.log('Asking the BGS tracker for every system in one go...');
-    const response = await this.resilientGet<BgsAllResponse>(BGS_SYSTEMS_URL, SYSTEMS_TIMEOUT_MS);
+    const response = await this.fetchTier(tier);
     this.log(`Received ${response.data.length} systems.`);
     const { config } = response;
     if (!config) {
@@ -1055,7 +1084,8 @@ export class CanonnBgsService {
     this.log('Scoring work priority for each system...');
     const placeholders = new Set(config.placeholders);
     const rows = response.data.map(record => this.toRow(record, config, placeholders));
-    this.registryRows = response.data.flatMap(record => {
+    // A full list replaces the registry; a tier's list refreshes just its own systems' rows.
+    const registry = response.data.flatMap(record => {
       const architect = record.architect;
       return architect && (architect.architect_name || architect.canonn_architect || architect.preferred_faction)
         ? [toRegistryRow({
@@ -1066,6 +1096,12 @@ export class CanonnBgsService {
           })]
         : [];
     });
+    if (tier) {
+      const fetched = new Set(response.data.map(record => record.name));
+      this.registryRows = [...this.registryRows.filter(r => !fetched.has(r.systemName)), ...registry];
+    } else {
+      this.registryRows = registry;
+    }
     this.applyRecentAssignments(rows);
     this.log(
       `Done. ${rows.filter(r => r.architect !== null).length} systems have an architect on record, ` +

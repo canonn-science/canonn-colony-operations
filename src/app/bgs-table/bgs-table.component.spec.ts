@@ -75,6 +75,7 @@ describe('BgsTableComponent over the whole list', () => {
   let service: {
     getSystems: ReturnType<typeof vi.fn>;
     refreshSystems: ReturnType<typeof vi.fn>;
+    loadLog: () => string[];
     getArchitectRegistry: ReturnType<typeof vi.fn>;
     typeahead: ReturnType<typeof vi.fn>;
   };
@@ -103,6 +104,7 @@ describe('BgsTableComponent over the whole list', () => {
     service = {
       getSystems: vi.fn(),
       refreshSystems: vi.fn(),
+      loadLog: () => [],
       getArchitectRegistry: vi.fn().mockResolvedValue([]),
       typeahead: vi.fn().mockResolvedValue({ min_max: [], values: [] }),
     };
@@ -117,6 +119,23 @@ describe('BgsTableComponent over the whole list', () => {
     }).compileComponents();
 
     await createWith(allSystems());
+  });
+
+  describe('tier', () => {
+    it('asks for just its tier on start-up - the list and the architect suggestions both', async () => {
+      service.getSystems.mockClear();
+      service.getArchitectRegistry.mockClear();
+      fixture = TestBed.createComponent(BgsTableComponent);
+      fixture.componentRef.setInput('tier', 'P0');
+      await fixture.whenStable();
+
+      expect(service.getSystems.mock.calls).toEqual([['P0']]);
+      expect(service.getArchitectRegistry.mock.calls).toEqual([['P0']]);
+    });
+
+    it('asks for every system when it has no tier', () => {
+      expect(service.getSystems.mock.calls[0]).toEqual([undefined]);
+    });
   });
 
   describe('paging', () => {

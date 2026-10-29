@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, OnDestroy, computed, signal, viewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnDestroy, computed, signal, viewChildren } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatTabsModule } from '@angular/material/tabs';
 import { MatTooltipModule } from '@angular/material/tooltip';
@@ -8,15 +8,15 @@ import { BgsTableComponent } from '../bgs-table/bgs-table.component';
 import { CanonnLogoComponent } from '../canonn-logo/canonn-logo.component';
 import { ColonyCensusComponent } from '../colony-census/colony-census.component';
 
-/** The tabs in display order; a shared link's `tab` query param names one (Priorities is the default and carries none). */
-const TAB_PARAMS = ['priorities', 'architects', 'factions'] as const;
+/** The tabs in display order; a shared link's `tab` query param names one (Priorities is the default and carries none; All Systems carries `tab=all` along with the table's own params). */
+const TAB_PARAMS = ['priorities', 'all', 'architects', 'factions'] as const;
 type TabId = (typeof TAB_PARAMS)[number];
 
-const TAB_LABELS: Record<TabId, string> = { priorities: 'Priorities', architects: 'Architects', factions: 'Factions' };
+const TAB_LABELS: Record<TabId, string> = { priorities: 'Priorities', all: 'All Systems', architects: 'Architects', factions: 'Factions' };
 
 /**
  * The landing page: the Canonn logo, title and subtitle (with the share-link button), then a tab
- * bar - Priorities (the main table, the default), Architects and Factions (the two halves of the
+ * bar - Priorities (the P0 systems, the default), All Systems (the full table), Architects and Factions (the two halves of the
  * colony census).
  */
 @Component({
@@ -40,7 +40,8 @@ export class HomeComponent implements OnDestroy {
   protected readonly loading = signal(true);
   protected readonly linkCopied = signal(false);
   private linkCopiedResetHandle: ReturnType<typeof setTimeout> | undefined;
-  private readonly table = viewChild(BgsTableComponent);
+  /** The tables opened so far (a tab's content is kept once visited); the current tab's is told apart by its tier. */
+  private readonly tables = viewChildren(BgsTableComponent);
 
   protected readonly tabLabels = TAB_LABELS;
   /** The tabs left to right, in a fixed order. */
@@ -65,10 +66,13 @@ export class HomeComponent implements OnDestroy {
     clearTimeout(this.linkCopiedResetHandle);
   }
 
-  /** Copies a link that reopens the current tab: on Priorities it carries the table's filters and sort, elsewhere just `?tab=`. */
+  /** Copies a link that reopens the current tab: on a table tab it carries the table's filters and sort, elsewhere just `?tab=`. */
   protected async copyShareLink(): Promise<void> {
     const tab = this.currentTab();
-    const query = tab === 'priorities' ? (this.table()?.shareQuery() ?? '') : `tab=${tab}`;
+    const tier = tab === 'priorities' ? 'P0' : undefined;
+    const tableQuery = this.tables().find(t => t.tier() === tier)?.shareQuery() ?? '';
+    const query =
+      tab === 'priorities' ? tableQuery : tab === 'all' ? ['tab=all', tableQuery].filter(Boolean).join('&') : `tab=${tab}`;
     const url = `${window.location.origin}${window.location.pathname}${query ? '?' + query : ''}`;
     try {
       await navigator.clipboard.writeText(url);

@@ -34,18 +34,18 @@ describe('HomeComponent tabs', () => {
 
   it('starts on Priorities', async () => {
     await create();
-    expect(labels()).toEqual(['Priorities', 'Architects', 'Factions']);
+    expect(labels()).toEqual(['Priorities', 'All Systems', 'Architects', 'Factions']);
     expect(active()).toBe('Priorities');
   });
 
   it('keeps the tabs in a fixed order when clicking between them', async () => {
     await create();
     await click('Factions');
-    expect(labels()).toEqual(['Priorities', 'Architects', 'Factions']);
+    expect(labels()).toEqual(['Priorities', 'All Systems', 'Architects', 'Factions']);
     expect(active()).toBe('Factions');
 
     await click('Architects');
-    expect(labels()).toEqual(['Priorities', 'Architects', 'Factions']);
+    expect(labels()).toEqual(['Priorities', 'All Systems', 'Architects', 'Factions']);
     expect(active()).toBe('Architects');
   });
 });
