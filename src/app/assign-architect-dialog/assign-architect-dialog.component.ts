@@ -77,6 +77,7 @@ export class AssignArchitectDialogComponent implements OnDestroy {
   private readonly data = inject<AssignArchitectDialogData>(MAT_DIALOG_DATA);
 
   protected readonly systemName = this.data.row.systemName;
+  protected readonly inara = `https://inara.cz/elite/starsystem/?search=${encodeURIComponent(this.systemName)}`;
   protected readonly affiliationOptions = AFFILIATION_OPTIONS;
   protected readonly dontKnowFaction = DONT_KNOW_FACTION;
   protected readonly notAColony = AFFILIATION_NOT_A_COLONY;

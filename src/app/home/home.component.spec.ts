@@ -48,4 +48,24 @@ describe('HomeComponent tabs', () => {
     expect(labels()).toEqual(['Priorities', 'All Systems', 'Architects', 'Factions']);
     expect(active()).toBe('Architects');
   });
+
+  describe('links naming a system', () => {
+    const originalHref = window.location.href;
+
+    afterEach(() => {
+      history.pushState({}, '', originalHref);
+    });
+
+    it('opens All Systems for an `assign` link, even without a `tab` param', async () => {
+      history.pushState({}, '', '/?assign=Synuefe%20FI-Z%20d1-10');
+      await create();
+      expect(active()).toBe('All Systems');
+    });
+
+    it('opens All Systems for a `priority` link, even without a `tab` param', async () => {
+      history.pushState({}, '', '/?priority=Synuefe%20FI-Z%20d1-10');
+      await create();
+      expect(active()).toBe('All Systems');
+    });
+  });
 });

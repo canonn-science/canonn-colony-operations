@@ -650,6 +650,11 @@ export class BgsTableComponent implements OnInit, OnDestroy {
       this.sortColumn.set(sortColumnParam as SortColumn);
       this.sortDirection.set(params.get('dir') === 'desc' ? 'desc' : 'asc');
       this.mode.set('column');
+    } else if (params.get(ASSIGN_PARAM)) {
+      // No explicit sort: an `assign` link names a system to put an architect to, so group it with its peers.
+      this.sortColumn.set('architect');
+      this.sortDirection.set('asc');
+      this.mode.set('column');
     }
 
     const page = Number(params.get('page'));

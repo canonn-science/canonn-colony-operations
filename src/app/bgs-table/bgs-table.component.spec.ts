@@ -587,5 +587,15 @@ describe('BgsTableComponent over the whole list', () => {
 
       expect(dialogOpen).not.toHaveBeenCalled();
     });
+
+    it('sorts by architect when the link carries no explicit sort', async () => {
+      dialogOpen.mockReturnValue({ afterClosed: () => ({ subscribe: () => {} }) });
+      history.pushState({}, '', '/?assign=System%20005');
+
+      await createWith([row('System 005'), row('System 006')]);
+
+      expect(component['mode']()).toBe('column');
+      expect(component['sortColumn']()).toBe('architect');
+    });
   });
 });

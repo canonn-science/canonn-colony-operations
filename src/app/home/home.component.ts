@@ -7,6 +7,8 @@ import { faCheck, faLink } from '@fortawesome/free-solid-svg-icons';
 import { BgsTableComponent } from '../bgs-table/bgs-table.component';
 import { CanonnLogoComponent } from '../canonn-logo/canonn-logo.component';
 import { ColonyCensusComponent } from '../colony-census/colony-census.component';
+import { ASSIGN_PARAM } from '../data/assign-architect-link';
+import { PRIORITY_PARAM } from '../data/priority-link';
 
 /** The tabs in display order; a shared link's `tab` query param names one (Priorities is the default and carries none; All Systems carries `tab=all` along with the table's own params). */
 const TAB_PARAMS = ['priorities', 'all', 'architects', 'factions'] as const;
@@ -50,8 +52,9 @@ export class HomeComponent implements OnDestroy {
   private readonly currentTab = computed(() => this.tabOrder[this.selectedIndex()]);
 
   constructor() {
-    // A shared link's `tab` param opens that tab.
-    const wanted = new URLSearchParams(window.location.search).get('tab');
+    const params = new URLSearchParams(window.location.search);
+    // A link naming a system (`priority`, `assign`) always opens All Systems, since the system may not be P0.
+    const wanted = params.get(PRIORITY_PARAM) || params.get(ASSIGN_PARAM) ? 'all' : params.get('tab');
     const index = TAB_PARAMS.findIndex(t => t === wanted);
     if (index > 0) {
       this.selectedIndex.set(index);

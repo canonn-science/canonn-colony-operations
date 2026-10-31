@@ -25,6 +25,11 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
+
+  > a {
+    align-self: flex-start;
+    font-size: 0.85rem;
+  }
 }
 
 .assign-system-label {
