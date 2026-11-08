@@ -123,6 +123,16 @@ export interface Builder {
   byPref: Record<PrefGroup, number>;
 }
 
+/**
+ * A faction controlling at least one "home" system — Canonn- or CDSR-preferred, with a confirmed
+ * Canonn-member architect. Canonn and CDSR are counted together as `isUs`.
+ */
+export interface HomeController {
+  faction: string;
+  count: number;
+  isUs: boolean;
+}
+
 export interface AtlasStats {
   systems: AtlasSystem[];
   /** Every architect with a named system, most systems first. */
@@ -145,6 +155,8 @@ export interface AtlasStats {
     U: Record<CtrlGroup, number>;
   };
   controlGaps: ControlGap[];
+  /** Who controls our home systems (Canonn/CDSR-preferred, Canonn-member architect), most systems first. */
+  homeControllers: HomeController[];
   margins: MarginPoint[];
   homeBands: { total: number; close: number; middle: number; healthy: number };
   /** How many systems have 1, 2, 3 … minor factions. */
@@ -169,6 +181,8 @@ export interface AtlasStats {
 }
 
 const VARATI_FALLBACK: Point3 = { x: -178.65625, y: 77.125, z: -87.125 };
+/** Label for the merged Canonn/CDSR bucket in {@link HomeController}. */
+const HOME_US_LABEL = 'Canonn / CDSR';
 
 export function prefGroup(row: BgsRow): PrefGroup {
   if (!row.preferredFactionRecorded || !row.preferredFaction) {
@@ -229,6 +243,7 @@ export function computeAtlasStats(rows: readonly BgsRow[], nowMs: number = Date.
   const systems: AtlasSystem[] = [];
   const recon: ReconCandidate[] = [];
   const controlGaps: ControlGap[] = [];
+  const homeControlMap = new Map<string, HomeController>();
   const margins: MarginPoint[] = [];
   const lowInfluence: LowInfluence[] = [];
   const movers: Mover[] = [];
@@ -355,6 +370,14 @@ export function computeAtlasStats(rows: readonly BgsRow[], nowMs: number = Date.
       });
     }
 
+    if (aff === AFFILIATION_CANONN_MEMBER && (pref === 'C' || pref === 'D')) {
+      const isUs = ctrl === 'C' || ctrl === 'D';
+      const key = isUs ? HOME_US_LABEL : row.controllingFaction ?? 'Unknown';
+      const entry = homeControlMap.get(key) ?? { faction: key, count: 0, isUs };
+      entry.count++;
+      homeControlMap.set(key, entry);
+    }
+
     if ((ctrl === 'C' || ctrl === 'D') && factions.length) {
       const own =
         factions.find((f) => f.name === row.controllingFaction)?.influencePercent ??
@@ -454,6 +477,9 @@ export function computeAtlasStats(rows: readonly BgsRow[], nowMs: number = Date.
     recon: recon.sort((a, b) => a.fromVarati - b.fromVarati),
     matrix,
     controlGaps: controlGaps.sort((a, b) => a.behind - b.behind || a.name.localeCompare(b.name)),
+    homeControllers: [...homeControlMap.values()].sort(
+      (a, b) => b.count - a.count || a.faction.localeCompare(b.faction),
+    ),
     margins,
     homeBands: {
       total: home.length,

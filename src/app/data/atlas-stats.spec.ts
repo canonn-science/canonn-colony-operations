@@ -98,6 +98,61 @@ describe('computeAtlasStats', () => {
     });
   });
 
+  it('tallies who controls home systems, merging Canonn and CDSR and requiring a Canonn-member architect', () => {
+    const stats = computeAtlasStats(
+      [
+        // Canonn-preferred, Canonn-member architect, Canonn controls -> ours.
+        row({
+          systemName: 'Ours 1',
+          preferredFaction: CANONN_FACTION,
+          preferredFactionRecorded: true,
+          architect: 'A',
+          architectAffiliation: AFFILIATION_CANONN_MEMBER,
+          controllingFaction: CANONN_FACTION,
+        }),
+        // CDSR-preferred, Canonn-member architect, CDSR controls -> still ours (merged).
+        row({
+          systemName: 'Ours 2',
+          preferredFaction: CDSR_FACTION,
+          preferredFactionRecorded: true,
+          architect: 'B',
+          architectAffiliation: AFFILIATION_CANONN_MEMBER,
+          controllingFaction: CDSR_FACTION,
+        }),
+        // Canonn-preferred, Canonn-member architect, but someone else controls -> lost to them.
+        row({
+          systemName: 'Lost',
+          preferredFaction: CANONN_FACTION,
+          preferredFactionRecorded: true,
+          architect: 'C',
+          architectAffiliation: AFFILIATION_CANONN_MEMBER,
+          controllingFaction: 'Rival Faction',
+        }),
+        // Canonn-preferred but architect is not a Canonn member -> excluded entirely.
+        row({
+          systemName: 'Not a member',
+          preferredFaction: CANONN_FACTION,
+          preferredFactionRecorded: true,
+          architect: 'D',
+          architectAffiliation: 'The Architect is not a Canonn Member',
+          controllingFaction: 'Rival Faction',
+        }),
+        // Canonn-member architect but no preference recorded -> excluded (not a "home" system).
+        row({
+          systemName: 'No preference',
+          architect: 'E',
+          architectAffiliation: AFFILIATION_CANONN_MEMBER,
+          controllingFaction: 'Rival Faction',
+        }),
+      ],
+      NOW,
+    );
+    expect(stats.homeControllers).toEqual([
+      { faction: 'Canonn / CDSR', count: 2, isUs: true },
+      { faction: 'Rival Faction', count: 1, isUs: false },
+    ]);
+  });
+
   it('finds untouched colonies with Canonn or CDSR third on the founding split and no architect record', () => {
     const founding = [f('Leader', 60), f('Second', 20), f(CANONN_FACTION, 13), f('Fourth', 7)];
     const stats = computeAtlasStats(

@@ -21,6 +21,7 @@ export type AtlasPlate =
   | 'recon'
   | 'builders'
   | 'control'
+  | 'homeControl'
   | 'margins'
   | 'retreat'
   | 'week'
@@ -76,6 +77,7 @@ export class CensusAtlasComponent implements OnDestroy {
   private readonly gridRef = viewChild<ElementRef<HTMLCanvasElement>>('grid');
   private readonly packRef = viewChild<ElementRef<SVGSVGElement>>('pack');
   private readonly marginRef = viewChild<ElementRef<SVGSVGElement>>('margin');
+  private readonly homeCtrlRef = viewChild<ElementRef<SVGSVGElement>>('homeCtrl');
   private readonly nfRef = viewChild<ElementRef<SVGSVGElement>>('nf');
   private readonly moversRef = viewChild<ElementRef<SVGSVGElement>>('movers');
   private readonly sparksRef = viewChild<ElementRef<HTMLElement>>('sparks');
@@ -134,11 +136,34 @@ export class CensusAtlasComponent implements OnDestroy {
   protected readonly retreatPossible = computed(
     () => this.stats().lowInfluence.filter((l) => l.retreatPossible).length,
   );
+  protected readonly homeControlTotal = computed(() =>
+    this.stats().homeControllers.reduce((sum, c) => sum + c.count, 0),
+  );
+  /**
+   * The chart only has room for so many rows: Canonn/CDSR plus the 9 biggest other controllers,
+   * with anyone left over folded into a single "All other factions" row — 10 rows at most.
+   */
+  protected readonly homeControllersTop = computed(() => {
+    const rows = this.stats().homeControllers;
+    const LIMIT = 10;
+    if (rows.length <= LIMIT) return rows;
+    const us = rows.find((r) => r.isUs);
+    const others = rows.filter((r) => !r.isUs);
+    const slots = LIMIT - 1 - (us ? 1 : 0);
+    const shown = others.slice(0, slots);
+    const restCount = others.slice(slots).reduce((sum, r) => sum + r.count, 0);
+    const result = us ? [us, ...shown] : shown;
+    if (restCount > 0) {
+      result.push({ faction: 'All other factions', count: restCount, isUs: false });
+    }
+    return result;
+  });
 
   constructor() {
     effect(() => this.drawGrid());
     effect(() => this.drawPack());
     effect(() => this.drawMargins());
+    effect(() => this.drawHomeControl());
     effect(() => this.drawFactionCounts());
     effect(() => this.drawMovers());
     effect(() => this.drawSparks());
@@ -428,6 +453,57 @@ export class CensusAtlasComponent implements OnDestroy {
       )
       .call((g) => g.selectAll('text').attr('class', 'ca-axis'))
       .call((g) => g.selectAll('line,path').attr('stroke', this.css('--cc-rule')));
+  }
+
+  // ---- Home control (who holds our home systems) ---------------------------------------------
+  private drawHomeControl(): void {
+    const ref = this.homeCtrlRef();
+    const rows = this.homeControllersTop();
+    const W = Math.min(this.width() || 620, 680);
+    if (!ref || !rows.length) return;
+    const total = this.homeControlTotal();
+    const svg = d3.select(ref.nativeElement);
+    svg.selectAll('*').remove();
+    const rowH = 30;
+    const m = { l: Math.min(190, W * 0.4), r: 54 };
+    const H = rows.length * rowH + 8;
+    svg.attr('viewBox', `0 0 ${W} ${H}`);
+    const x = d3.scaleLinear([0, d3.max(rows, (r) => r.count) ?? 1], [m.l, W - m.r]).nice();
+    const g = svg
+      .selectAll('g')
+      .data(rows)
+      .join('g')
+      .attr('transform', (_d, i) => `translate(0,${4 + i * rowH})`);
+    g.append('text')
+      .attr('x', m.l - 10)
+      .attr('y', rowH / 2 + 4)
+      .attr('text-anchor', 'end')
+      .attr('class', (d) => `ca-label${d.isUs ? ' ca-strong' : ''}`)
+      .text((d) => (d.faction.length > 24 ? d.faction.slice(0, 23) + '…' : d.faction));
+    g.append('line')
+      .attr('x1', x(0))
+      .attr('x2', (d) => x(d.count))
+      .attr('y1', rowH / 2)
+      .attr('y2', rowH / 2)
+      .attr('stroke', (d) => this.css(d.isUs ? '--cc-good' : '--cc-bad'))
+      .attr('stroke-width', 3)
+      .attr('stroke-linecap', 'round');
+    g.append('circle')
+      .attr('cx', (d) => x(d.count))
+      .attr('cy', rowH / 2)
+      .attr('r', (d) => (d.isUs ? 7 : 5.5))
+      .attr('fill', (d) => this.css(d.isUs ? '--cc-good' : '--cc-bad'));
+    g.append('text')
+      .attr('x', (d) => x(d.count) + 12)
+      .attr('y', rowH / 2 + 4)
+      .attr('class', 'ca-label ca-strong')
+      .text((d) => this.fmt(d.count));
+    g.on('pointermove', (event: PointerEvent, d) =>
+      this.showTip(
+        event,
+        `<b>${escapeHtml(d.faction)}</b>${this.fmt(d.count)} of ${this.fmt(total)} home systems · ${this.pct(d.count, total)}${d.isUs ? ' · ours' : ''}`,
+      ),
+    ).on('pointerleave', () => this.hideTip());
   }
 
   // ---- Factions per system --------------------------------------------------------------------

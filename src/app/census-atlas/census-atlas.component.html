@@ -247,6 +247,23 @@
     </div>
   }
 
+  @case ('homeControl') {
+    <div class="ca-legend">
+      <span><i class="ca-sw" style="background: var(--cc-good)"></i>Canonn or CDSR controls</span>
+      <span><i class="ca-sw" style="background: var(--cc-bad)"></i>Another faction controls</span>
+    </div>
+    <div class="ca-panel ca-pad">
+      <svg #homeCtrl role="img" aria-label="Top 10 factions controlling Canonn's home systems"></svg>
+      <div class="ca-hint">
+        <span>Hover a row for its share · top 10 controllers shown</span
+        ><span
+          >{{ fmt(homeControlTotal()) }} systems: Canonn/CDSR-preferred with a confirmed
+          Canonn-member architect</span
+        >
+      </div>
+    </div>
+  }
+
   @case ('margins') {
     <div class="ca-legend">
       <span><i class="ca-sw ca-bad"></i>Under 5 points</span>

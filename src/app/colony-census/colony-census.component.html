@@ -406,6 +406,12 @@
             <p class="cc-dek">{{ a.neighbours[0]?.faction }} turns up alongside Canonn or CDSR more than any other faction. In Powerplay, {{ fmt(a.inPowerSpace) }} of the systems we run sit inside a power's territory.</p>
             <app-census-atlas plate="neighbours" [stats]="a"></app-census-atlas>
           </section>
+
+          <section class="cc-wide" aria-labelledby="cc-home-h">
+            <div class="cc-plate-head"><span class="cc-tag">Home systems</span><h2 id="cc-home-h">Who controls the systems we should be running</h2></div>
+            <p class="cc-dek">Systems where the architect is a confirmed Canonn member and the recorded preference is Canonn or CDSR — our home turf, with Canonn and CDSR counted as one faction. Most are ours; the rest show who is holding them instead.</p>
+            <app-census-atlas plate="homeControl" [stats]="a"></app-census-atlas>
+          </section>
           @if (factionNetwork(); as net) {
 
           <section class="cc-wide" aria-labelledby="cc-ctrl-h">
