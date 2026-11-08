@@ -6,6 +6,9 @@
 /out-tsc
 /bazel-out
 
+# Auto-generated at build/start time by scripts/generate-build-info.js
+/src/app/build-info.ts
+
 # Node
 /node_modules
 npm-debug.log

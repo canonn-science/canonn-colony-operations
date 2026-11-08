@@ -137,15 +137,61 @@ describe('CanonnBgsService loading the whole list', () => {
   it('falls back to the next tier down when a tier has no systems', async () => {
     const real = fetchMock.getMockImplementation() as (url: string) => Promise<Response>;
     fetchMock.mockImplementation((url: string) =>
-      url.endsWith('&tier=P0') || url.endsWith('&tier=P1')
+      url.endsWith('&tier=P1')
         ? Promise.resolve(textResponse(JSON.stringify({ data: [], total: 0, config: CONFIG })))
+        : real(url),
+    );
+
+    const snapshot = await service.getSystems('P1');
+
+    expect(snapshot.rows).toHaveLength(250);
+    expect(listRequests()).toEqual([`${SYSTEMS_URL}&tier=P1`, `${SYSTEMS_URL}&tier=P2`]);
+  });
+
+  it('tops the Priorities tab up with P1 systems when there are fewer than ten P0 ones', async () => {
+    const real = fetchMock.getMockImplementation() as (url: string) => Promise<Response>;
+    const p0Records = Array.from({ length: 3 }, (_unused, i) => systemRecord(`P0 System ${i}`));
+    const p1Records = Array.from({ length: 20 }, (_unused, i) => systemRecord(`P1 System ${i}`));
+    fetchMock.mockImplementation((url: string) => {
+      if (url.endsWith('&tier=P0')) {
+        return Promise.resolve(textResponse(JSON.stringify({ data: p0Records, total: p0Records.length, config: CONFIG })));
+      }
+      if (url.endsWith('&tier=P1')) {
+        return Promise.resolve(textResponse(JSON.stringify({ data: p1Records, total: p1Records.length, config: CONFIG })));
+      }
+      return real(url);
+    });
+
+    const snapshot = await service.getSystems('P0');
+
+    expect(snapshot.rows.map(r => r.systemName)).toEqual([
+      'P0 System 0',
+      'P0 System 1',
+      'P0 System 2',
+      'P1 System 0',
+      'P1 System 1',
+      'P1 System 2',
+      'P1 System 3',
+      'P1 System 4',
+      'P1 System 5',
+      'P1 System 6',
+    ]);
+    expect(listRequests()).toEqual([`${SYSTEMS_URL}&tier=P0`, `${SYSTEMS_URL}&tier=P1`]);
+  });
+
+  it('does not fetch P1 systems when P0 already has at least ten', async () => {
+    const real = fetchMock.getMockImplementation() as (url: string) => Promise<Response>;
+    const p0Records = Array.from({ length: 10 }, (_unused, i) => systemRecord(`P0 System ${i}`));
+    fetchMock.mockImplementation((url: string) =>
+      url.endsWith('&tier=P0')
+        ? Promise.resolve(textResponse(JSON.stringify({ data: p0Records, total: p0Records.length, config: CONFIG })))
         : real(url),
     );
 
     const snapshot = await service.getSystems('P0');
 
-    expect(snapshot.rows).toHaveLength(250);
-    expect(listRequests()).toEqual([`${SYSTEMS_URL}&tier=P0`, `${SYSTEMS_URL}&tier=P1`, `${SYSTEMS_URL}&tier=P2`]);
+    expect(snapshot.rows).toHaveLength(10);
+    expect(listRequests()).toEqual([`${SYSTEMS_URL}&tier=P0`]);
   });
 
   it('needs nothing but that one request: the architects and watchlist come with the systems', async () => {

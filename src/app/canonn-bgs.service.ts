@@ -47,6 +47,9 @@ const SYSTEMS_TIMEOUT_MS = 60000;
 /** How long a loaded list is served before the next request for it fetches a fresh one (ms). */
 export const SYSTEMS_MAX_AGE_MS = 10 * 60 * 1000;
 
+/** The Priorities tab's floor: short of this many P0 systems, it's topped up with P1 systems. */
+const MIN_PRIORITY_SYSTEMS = 10;
+
 /** localStorage key a just-submitted assignment is remembered under until the API's list shows it. */
 const RECENT_ASSIGNMENTS_KEY = 'canonn-bgs:recent-assignments:v1';
 /** How long a submission is remembered at most — the tracker normally picks a sheet row up well within this. */
@@ -1057,6 +1060,9 @@ export class CanonnBgsService {
       this.log('Asking the BGS tracker for every system in one go...');
       return this.resilientGet<BgsAllResponse>(BGS_SYSTEMS_URL, SYSTEMS_TIMEOUT_MS);
     }
+    if (tier === 'P0') {
+      return this.fetchPriorityTier();
+    }
     const tiers = SYSTEMS_TIERS.slice(SYSTEMS_TIERS.indexOf(tier));
     for (const [i, candidate] of tiers.entries()) {
       this.log(`Asking the BGS tracker for the ${candidate} systems...`);
@@ -1067,6 +1073,23 @@ export class CanonnBgsService {
       this.log(`No ${candidate} systems; trying ${tiers[i + 1]}...`);
     }
     throw new Error('unreachable');
+  }
+
+  /**
+   * The Priorities tab's list: the P0 systems, topped up with as many P1 systems as it takes
+   * to reach {@link MIN_PRIORITY_SYSTEMS}, so the tab isn't left showing just a handful of rows
+   * on a quiet day. Still P0-first — the P1 systems are appended, never replacing a P0 one.
+   */
+  private async fetchPriorityTier(): Promise<BgsAllResponse> {
+    this.log('Asking the BGS tracker for the P0 systems...');
+    const p0 = await this.resilientGet<BgsAllResponse>(`${BGS_SYSTEMS_URL}&tier=P0`, SYSTEMS_TIMEOUT_MS);
+    if (p0.data.length >= MIN_PRIORITY_SYSTEMS) {
+      return p0;
+    }
+    this.log(`Only ${p0.data.length} P0 systems; topping up with P1 systems...`);
+    const p1 = await this.resilientGet<BgsAllResponse>(`${BGS_SYSTEMS_URL}&tier=P1`, SYSTEMS_TIMEOUT_MS);
+    const data = [...p0.data, ...p1.data.slice(0, MIN_PRIORITY_SYSTEMS - p0.data.length)];
+    return { ...p0, data, total: data.length };
   }
 
   private async fetchSystems(tier?: SystemsTier): Promise<BgsSnapshot> {
