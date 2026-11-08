@@ -68,6 +68,40 @@
             <app-census-atlas plate="records" [stats]="a"></app-census-atlas>
           </section>
 
+          <section class="cc-wide" aria-labelledby="cc-rate-h">
+            @if (runRate(); as rate) {
+              <div class="cc-plate-head"><span class="cc-tag">Burndown</span><h2 id="cc-rate-h">{{ fmt(rate.remaining) }} systems still need an architect recorded</h2></div>
+              <p class="cc-dek">Systems without an architect record, falling towards zero by {{ targetLabel }}. {{ runRateOutlook(rate) }}</p>
+              <p class="cc-note">Systems recorded as "not a colony" count as recorded, since someone had to check them. Of the {{ fmt(rate.loggedTotal) }} systems first recorded since the registry began, {{ fmt(rate.loggedNotColony) }} ({{ pct(rate.loggedNotColony, rate.loggedTotal) }}) were not colonies and {{ fmt(rate.loggedTotal - rate.loggedNotColony) }} had a named architect or an unknown one.</p>
+              <div class="cc-legend">
+                <span><span class="cc-sw" style="background: var(--cc-canonn)"></span>Remaining</span>
+                <span><span class="cc-sw" style="background: var(--cc-ink-3)"></span>Pace needed to finish on time</span>
+                <span><span class="cc-sw" style="background: var(--cc-canonn); opacity: 0.5"></span>Projected at the recent pace</span>
+              </div>
+              <div class="cc-plate">
+                <svg #runRateSvg role="img" aria-label="Burndown of systems still without an architect record, against the pace needed to finish by the target date"></svg>
+                <div class="cc-hint"><span>Each dot is the end of a week · hover for the count against the straight line</span><span>A system counts once, in the week it was first recorded</span></div>
+              </div>
+              <div class="cc-legend">
+                @for (item of runRateLegend; track item.key) {
+                  <span><span class="cc-sw" [style.background]="'var(' + item.color + ')'"></span>{{ item.label }}</span>
+                }
+              </div>
+              <div class="cc-plate">
+                <div class="cc-mini-head">Systems recorded each week, by preferred faction. The dashed line is the {{ fmt(rate.neededPerWeek) }} a week needed.</div>
+                <svg #weeklySvg role="img" aria-label="Stacked weekly count of systems with a newly recorded architect, by preferred faction"></svg>
+                <div class="cc-hint"><span>Hover a week for the split · the latest week is still in progress and drawn paler</span></div>
+              </div>
+            } @else {
+              <div class="cc-plate-head"><span class="cc-tag">Burndown</span><h2 id="cc-rate-h">Architects still to record</h2></div>
+              @if (runRateFailed()) {
+                <p class="cc-note">The registry's dated responses couldn't be loaded, so the burndown isn't available right now.</p>
+              } @else {
+                <p class="cc-note">Loading the registry's dated responses…</p>
+              }
+            }
+          </section>
+
           <section class="cc-wide" aria-labelledby="cc-recon-h">
             <div class="cc-plate-head"><span class="cc-tag">Architect recon</span><h2 id="cc-recon-h">{{ fmt(a.recon.length) }} untouched colonies might have a Canonn architect</h2></div>
             <p class="cc-dek">These systems have no architect record, and Canonn or CDSR sits third on about 13% with the leader near 60%: the split a new four-faction colony starts with, apparently untouched since founding. Visit one, read the station news for a Canonn faction helping to found it, and record the architect.</p>

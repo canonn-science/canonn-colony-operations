@@ -13,7 +13,7 @@ import {
   viewChild,
 } from '@angular/core';
 import * as d3 from 'd3';
-import { CanonnBgsService, BgsRow } from '../canonn-bgs.service';
+import { CanonnBgsService, BgsRow, CANONN_FACTION, CDSR_FACTION } from '../canonn-bgs.service';
 import { CensusStats, computeCensusStats } from '../data/census-stats';
 import { ConflictEntry, MarginEntry, RivalRow, UsSide } from '../data/rivals';
 import { daysElapsed, parseUpdatedAt } from '../data/freshness';
@@ -27,6 +27,16 @@ import {
 import { LoadingTerminalComponent } from '../loading-terminal/loading-terminal.component';
 import { CensusAtlasComponent } from '../census-atlas/census-atlas.component';
 import { AtlasStats, computeAtlasStats } from '../data/atlas-stats';
+import {
+  ARCHITECT_TARGET_DATE,
+  BurndownPoint,
+  RUN_RATE_GROUPS,
+  RunRate,
+  RunRateGroup,
+  TimedRegistryRow,
+  computeRunRate,
+} from '../data/architect-run-rate';
+
 
 type LoadStatus = 'loading' | 'ready' | 'error';
 type RivalsUsFilter = 'all' | UsSide;
@@ -93,6 +103,14 @@ const ARCHITECT_DIST_BINS: ReadonlyArray<{ label: string; min: number; max: numb
   { label: '11–25', min: 11, max: 25 },
   { label: '26+', min: 26, max: Infinity },
 ];
+
+/** Legend text and swatch colour variable for each preferred-faction bucket of the weekly chart, bottom of the stack first. */
+const RUN_RATE_STYLE: Record<RunRateGroup, { label: string; color: string }> = {
+  C: { label: 'Canonn', color: '--cc-s1' },
+  D: { label: 'CDSR', color: '--cc-s3' },
+  O: { label: 'Other', color: '--cc-other' },
+  U: { label: 'None', color: '--cc-unset' },
+};
 
 const RIVALS_SHOWN = 24;
 const CLOSE_BAND_POINTS = 5;
@@ -345,7 +363,37 @@ export class ColonyCensusComponent implements OnInit, OnDestroy {
   protected readonly mapScope = signal<'core' | 'all'>('core');
   protected readonly clusterLegend = computed(() => this.factionNetwork()?.clusters ?? []);
 
+  // ---- Architect run rate -----------------------------------------------------------------
+  /** The registry's timestamped submissions; null until fetched (or if that failed — see {@link runRateFailed}). */
+  private readonly architectLog = signal<readonly TimedRegistryRow[] | null>(null);
+  protected readonly runRateFailed = signal(false);
+  protected readonly targetDate = ARCHITECT_TARGET_DATE;
+  protected readonly targetLabel = new Date(ARCHITECT_TARGET_DATE).toLocaleDateString('en-GB', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    timeZone: 'UTC',
+  });
+  protected readonly runRateLegend = RUN_RATE_GROUPS.map(g => ({ key: g, label: RUN_RATE_STYLE[g].label, color: RUN_RATE_STYLE[g].color }));
+  protected readonly runRate = computed((): RunRate | null => {
+    const log = this.architectLog();
+    const s = this.stats();
+    const a = this.atlas();
+    if (!log || !s || !a) {
+      return null;
+    }
+    return computeRunRate(log, {
+      canonn: CANONN_FACTION,
+      cdsr: CDSR_FACTION,
+      totalSystems: s.totalSystems,
+      withRecord: a.withRecord,
+      now: Date.now(),
+    });
+  });
+
   // ---- Chart hosts (d3 draws directly into these) -----------------------------------------
+  protected readonly weeklySvgRef = viewChild<ElementRef<SVGSVGElement>>('weeklySvg');
+  protected readonly runRateSvgRef = viewChild<ElementRef<SVGSVGElement>>('runRateSvg');
   protected readonly footSvgRef = viewChild<ElementRef<SVGSVGElement>>('footSvg');
   protected readonly rivSvgRef = viewChild<ElementRef<SVGSVGElement>>('rivSvg');
   protected readonly archDistSvgRef = viewChild<ElementRef<SVGSVGElement>>('archDistSvg');
@@ -362,6 +410,8 @@ export class ColonyCensusComponent implements OnInit, OnDestroy {
     effect(() => this.drawInfluenceHistogram());
     effect(() => this.drawFreshnessHistogram());
     effect(() => this.drawArchitectDistribution());
+    effect(() => this.drawRunRate());
+    effect(() => this.drawWeeklyRate());
     effect(() => this.drawArchitectMinimap());
     effect(() => this.drawPopulationScatter());
     effect(() => this.drawRivals());
@@ -416,9 +466,23 @@ export class ColonyCensusComponent implements OnInit, OnDestroy {
       this.architectQuery.set(first ?? '');
       this.factionNetwork.set(computeFactionNetwork(snapshot.rows));
       this.status.set('ready');
+      void this.loadArchitectLog();
     } catch (error) {
       this.errorMessage.set(error instanceof Error ? error.message : 'Something went wrong loading the BGS data.');
       this.status.set('error');
+    }
+  }
+
+  /** Fetches the dated registry log for the run-rate chart; the rest of the page doesn't wait for it. */
+  private async loadArchitectLog(): Promise<void> {
+    this.runRateFailed.set(false);
+    try {
+      const log = await this.bgsService.getArchitectLog();
+      this.architectLog.set(log);
+      // An empty log means the sheet wasn't the registry (e.g. a sign-in page), not "nothing recorded".
+      this.runRateFailed.set(log.length === 0);
+    } catch {
+      this.runRateFailed.set(true);
     }
   }
 
@@ -713,6 +777,219 @@ export class ColonyCensusComponent implements OnInit, OnDestroy {
       .attr('text-anchor', 'middle')
       .attr('class', 'cc-axis-text')
       .text(b => b.label);
+  }
+
+  // ---- Architect burndown (#run-rate) -----------------------------------------------------------
+  private drawRunRate(): void {
+    const ref = this.runRateSvgRef();
+    const rate = this.runRate();
+    if (!ref || !rate || rate.burndown.length === 0) {
+      return;
+    }
+    const svg = d3.select(ref.nativeElement);
+    svg.selectAll('*').remove();
+    const W = 900;
+    const H = 320;
+    const m = { l: 52, r: 18, t: 20, b: 36 };
+    svg.attr('viewBox', `0 0 ${W} ${H}`);
+    const points = rate.burndown;
+    const first = points[0];
+    const last = points[points.length - 1];
+    const target = this.targetDate;
+    const xEnd = Math.max(target, last.at);
+    const x = d3.scaleTime([new Date(first.at), new Date(xEnd)], [m.l, W - m.r]);
+    const y = d3.scaleLinear([0, Math.max(1, first.remaining)], [H - m.b, m.t]).nice();
+    this.drawAxisGridlines(svg, y, m, W);
+
+    const day = (at: number): string =>
+      new Date(at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+    const line = (from: BurndownPoint, to: BurndownPoint, color: string, dash: string | null, width = 1.8): void => {
+      svg
+        .append('line')
+        .attr('x1', x(new Date(from.at)))
+        .attr('y1', y(from.remaining))
+        .attr('x2', x(new Date(to.at)))
+        .attr('y2', y(to.remaining))
+        .attr('stroke', color)
+        .attr('stroke-width', width)
+        .attr('stroke-dasharray', dash);
+    };
+
+    // The straight line from where we started to zero on the target date.
+    line(first, { at: target, remaining: 0 }, this.cssVar('--cc-ink-3'), '6 4');
+
+    // Where the last four full weeks' pace takes us, up to the target date or the finish.
+    if (rate.recentPerWeek && rate.remaining > 0) {
+      const weeksToEnd = Math.min(rate.projectedFinish ?? target, target) - last.at;
+      const left = Math.max(0, last.remaining - (rate.recentPerWeek * weeksToEnd) / (7 * 24 * 60 * 60 * 1000));
+      line(last, { at: last.at + weeksToEnd, remaining: left }, this.cssVar('--cc-canonn'), '2 4');
+    }
+
+    // The target date.
+    svg
+      .append('line')
+      .attr('x1', x(new Date(target)))
+      .attr('x2', x(new Date(target)))
+      .attr('y1', m.t)
+      .attr('y2', H - m.b)
+      .attr('stroke', this.cssVar('--cc-ink-3'))
+      .attr('stroke-width', 1);
+
+    // What actually happened.
+    svg
+      .append('path')
+      .attr('d', d3.line<BurndownPoint>().x(p => x(new Date(p.at))).y(p => y(p.remaining))(points))
+      .attr('fill', 'none')
+      .attr('stroke', this.cssVar('--cc-canonn'))
+      .attr('stroke-width', 2.5)
+      .attr('stroke-linejoin', 'round');
+    svg
+      .append('g')
+      .selectAll('circle')
+      .data(points)
+      .join('circle')
+      .attr('cx', p => x(new Date(p.at)))
+      .attr('cy', p => y(p.remaining))
+      .attr('r', 3.5)
+      .attr('fill', this.cssVar('--cc-canonn'))
+      .on('pointerenter', (event: PointerEvent, p) =>
+        this.showTip(
+          event,
+          this.tipTitle(day(p.at)) +
+            this.tipRow('Still to record', this.fmt(p.remaining)) +
+            this.tipRow('On the straight line', this.fmt(Math.round(idealRemaining(first, target, p.at)))),
+        ),
+      )
+      .on('pointermove', (event: PointerEvent) => this.moveTip(event))
+      .on('pointerleave', () => this.hideTip());
+
+    // Month-ish ticks along the bottom, and the target date marked at its line.
+    const ticks = x.ticks(7);
+    svg
+      .append('g')
+      .selectAll('text')
+      .data(ticks)
+      .join('text')
+      .attr('x', d => x(d))
+      .attr('y', H - m.b + 18)
+      .attr('text-anchor', 'middle')
+      .attr('class', 'cc-axis-text')
+      .text(d => d.toLocaleDateString('en-GB', { month: 'short', year: '2-digit', timeZone: 'UTC' }));
+  }
+
+  // ---- Architect weekly run rate (#weekly) --------------------------------------------------------
+  private drawWeeklyRate(): void {
+    const ref = this.weeklySvgRef();
+    const rate = this.runRate();
+    if (!ref || !rate || rate.weeks.length === 0) {
+      return;
+    }
+    const svg = d3.select(ref.nativeElement);
+    svg.selectAll('*').remove();
+    const W = 900;
+    const H = 300;
+    const m = { l: 44, r: 14, t: 20, b: 36 };
+    svg.attr('viewBox', `0 0 ${W} ${H}`);
+    const weeks = rate.weeks;
+    const x = d3.scaleBand(weeks.map(w => w.start), [m.l, W - m.r]).padding(0.2);
+    const top = Math.max(1, d3.max(weeks, w => w.total) ?? 1, rate.neededPerWeek);
+    const y = d3.scaleLinear([0, top], [H - m.b, m.t]).nice();
+    this.drawAxisGridlines(svg, y, m, W);
+
+    const dateLabel = (start: number): string =>
+      new Date(start).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+
+    // One <g> per week, one rect per bucket, stacked from Canonn up to None.
+    const bars = svg.append('g').selectAll('g').data(weeks).join('g').attr('opacity', w => (w.partial ? 0.55 : 1));
+    bars.each((week, i, nodes) => {
+      let base = 0;
+      for (const group of RUN_RATE_GROUPS) {
+        const count = week[group];
+        if (!count) {
+          continue;
+        }
+        d3.select(nodes[i])
+          .append('rect')
+          .attr('x', x(week.start)!)
+          .attr('width', x.bandwidth())
+          .attr('y', y(base + count))
+          .attr('height', y(base) - y(base + count))
+          .attr('fill', this.cssVar(RUN_RATE_STYLE[group].color));
+        base += count;
+      }
+    });
+
+    // The weekly pace needed to cover every system by the target date.
+    if (rate.neededPerWeek > 0) {
+      svg
+        .append('line')
+        .attr('x1', m.l)
+        .attr('x2', W - m.r)
+        .attr('y1', y(rate.neededPerWeek))
+        .attr('y2', y(rate.neededPerWeek))
+        .attr('stroke', this.cssVar('--cc-ink'))
+        .attr('stroke-width', 1.5)
+        .attr('stroke-dasharray', '6 4');
+      svg
+        .append('text')
+        .attr('x', m.l + 6)
+        .attr('y', y(rate.neededPerWeek) - 6)
+        .attr('class', 'cc-axis-text')
+        .text(`${this.fmt(rate.neededPerWeek)} a week needed`);
+    }
+
+    // Hover targets span each week's full height so thin bars are easy to hit.
+    svg
+      .append('g')
+      .selectAll('rect')
+      .data(weeks)
+      .join('rect')
+      .attr('x', w => x(w.start)!)
+      .attr('width', x.bandwidth())
+      .attr('y', m.t)
+      .attr('height', H - m.b - m.t)
+      .attr('fill', 'transparent')
+      .on('pointerenter', (event: PointerEvent, w) => {
+        const rows = RUN_RATE_GROUPS.map(g => this.tipRow(RUN_RATE_STYLE[g].label, this.fmt(w[g]))).join('');
+        this.showTip(
+          event,
+          this.tipTitle(`Week of ${dateLabel(w.start)}${w.partial ? ' (so far)' : ''}`) + this.tipRow('Recorded', this.fmt(w.total)) + this.tipRow('Of which not a colony', this.fmt(w.notColony)) + rows,
+        );
+      })
+      .on('pointermove', (event: PointerEvent) => this.moveTip(event))
+      .on('pointerleave', () => this.hideTip());
+
+    // Label roughly every fourth week once there are many, always including the latest.
+    const every = Math.max(1, Math.ceil(weeks.length / 12));
+    svg
+      .append('g')
+      .selectAll('text')
+      .data(weeks.filter((_, i) => (weeks.length - 1 - i) % every === 0))
+      .join('text')
+      .attr('x', w => x(w.start)! + x.bandwidth() / 2)
+      .attr('y', H - m.b + 18)
+      .attr('text-anchor', 'middle')
+      .attr('class', 'cc-axis-text')
+      .text(w => dateLabel(w.start));
+  }
+
+  /** The projected-finish line under the run-rate chart, e.g. "At 41 a week we finish around 12 Mar 2027." */
+  protected runRateOutlook(rate: RunRate): string {
+    const day = (at: number): string =>
+      new Date(at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
+    if (rate.remaining === 0) {
+      return 'Every system has an architect on record.';
+    }
+    if (rate.weeksLeft === 0) {
+      return `The ${day(this.targetDate)} target has passed with ${this.fmt(rate.remaining)} systems still to record.`;
+    }
+    if (rate.recentPerWeek === null || rate.projectedFinish === null) {
+      return `${this.fmt(rate.remaining)} systems still need recording, which is ${this.fmt(rate.neededPerWeek)} a week to finish by ${day(this.targetDate)}.`;
+    }
+    const pace = `At ${this.fmt(Math.round(rate.recentPerWeek))} a week (the last four full weeks)`;
+    return rate.projectedFinish <= this.targetDate
+      ? `${pace} we finish around ${day(rate.projectedFinish)}, ahead of the ${day(this.targetDate)} target.`
+      : `${pace} we finish around ${day(rate.projectedFinish)}, behind the ${day(this.targetDate)} target. ${this.fmt(rate.neededPerWeek)} a week would make it.`;
   }
 
   // ---- Per-architect minimap ---------------------------------------------------------------------
@@ -2128,6 +2405,11 @@ export class ColonyCensusComponent implements OnInit, OnDestroy {
 /** Straight-line distance from Sol, in light years, from a row's galactic x/y/z. */
 function distanceLy(row: BgsRow): number {
   return Math.sqrt(row.x * row.x + row.y * row.y + row.z * row.z);
+}
+
+/** Where the straight line from `start` to zero on `target` stands at time `at`. */
+function idealRemaining(start: BurndownPoint, target: number, at: number): number {
+  return Math.max(0, start.remaining * (1 - (at - start.at) / (target - start.at)));
 }
 
 /** The path for a bar with rounded top corners (or square, when it sits under another segment). */

@@ -6,6 +6,7 @@ import {
   buildArchitectFormBody,
 } from './data/architect-form';
 import { ArchitectInfo, ArchitectRegistryRow } from './data/architect-registry';
+import { TimedRegistryRow, parseRegistryLog } from './data/architect-run-rate';
 import { isHomeSystem } from './data/home-systems';
 import { ApiTrend, InfluenceChange, influenceChangeFrom } from './data/influence-change';
 import { ConflictRow, HistoryRow } from './data/influence-history';
@@ -30,6 +31,9 @@ const QUERY_BASE = 'https://us-central1-canonn-api-236217.cloudfunctions.net/que
  * leaves out the `sparkline` the influence columns draw, for a saving of a few percent.)
  */
 const BGS_SYSTEMS_URL = `${QUERY_BASE}/bgs/systems?view=all`;
+/** The Architect Registry's form responses (with their Timestamp column), published from the sheet as TSV. */
+const ARCHITECT_LOG_URL =
+  'https://docs.google.com/spreadsheets/d/e/2PACX-1vS5TMBu2KJQBaNqSBropWVdXUcOjz-wJe57e8h4pRPzr7zZ066yjO-H2Z7hqZe-fOVSpzy-7dzAqU2z/pub?gid=1448295597&single=true&output=tsv';
 /** The priority tiers the list can be narrowed to server-side (`&tier=`), most urgent first; no tier means every system. */
 const SYSTEMS_TIERS = ['P0', 'P1', 'P2', 'P3'] as const;
 export type SystemsTier = (typeof SYSTEMS_TIERS)[number];
@@ -985,6 +989,15 @@ export class CanonnBgsService {
   async getArchitectRegistry(tier?: SystemsTier): Promise<readonly ArchitectRegistryRow[]> {
     await this.getSystems(tier);
     return [...this.registryRows];
+  }
+
+  /**
+   * Every Architect Registry submission with when it was made, for the architect run-rate chart.
+   * The tracker API has no record dates, so this reads the response sheet itself; it can fail
+   * independently of the system list, and the caller shows the chart as unavailable then.
+   */
+  async getArchitectLog(): Promise<TimedRegistryRow[]> {
+    return parseRegistryLog(await this.fetchTextOnce(ARCHITECT_LOG_URL, HTTP_TIMEOUT_MS));
   }
 
   /**
