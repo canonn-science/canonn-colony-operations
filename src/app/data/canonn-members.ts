@@ -30,7 +30,7 @@ export function isCanonnMember(members: readonly CanonnMember[], name: string): 
  * deduped, A-Z. Registry names win on a collision since they carry the most recently recorded
  * spelling.
  */
-export function mergeKnownNames(registryNames: readonly string[], members: readonly CanonnMember[]): string[] {
+export function mergeKnownNames(registryNames: readonly string[], members: readonly { readonly name: string }[]): string[] {
   const byKey = new Map<string, string>();
   for (const name of registryNames) {
     byKey.set(nameKey(name), name);

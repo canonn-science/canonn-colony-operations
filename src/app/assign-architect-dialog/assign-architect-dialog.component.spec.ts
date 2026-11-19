@@ -8,6 +8,7 @@ import {
   AFFILIATION_UNKNOWN,
 } from '../data/architect-form';
 import { ArchitectRegistryRow } from '../data/architect-registry';
+import { FACTION_PREFERENCES_TOKEN } from '../data/faction-preferences';
 import { NO_PRIORITY } from '../data/priority';
 import { AssignArchitectDialogComponent } from './assign-architect-dialog.component';
 
@@ -109,6 +110,13 @@ describe('AssignArchitectDialogComponent', () => {
         { provide: MatDialogRef, useValue: dialogRef },
         { provide: MAT_DIALOG_DATA, useValue: { row: ROW } },
         { provide: CanonnBgsService, useValue: service },
+        {
+          provide: FACTION_PREFERENCES_TOKEN,
+          useValue: [
+            { cmdr: 'Exil', factions: ['Local Lads', 'Canonn'] },
+            { cmdr: 'Away Cmdr', factions: ['Not Here Faction'] },
+          ],
+        },
       ],
     }).compileComponents();
 
@@ -138,6 +146,30 @@ describe('AssignArchitectDialogComponent', () => {
     expect(component['factionNote']()).toContain('2 times');
     // The faction isn't present in this system, so it has to be offered as an extra option.
     expect(component['factionOptions']()).toContain('Flat Galaxy Society');
+  });
+
+  it('marks a commander from the sheet as not a member and picks their strongest faction here', async () => {
+    form().controls.architect.setValue('exil');
+    await fixture.whenStable();
+
+    expect(form().controls.affiliation.value).toBe(AFFILIATION_NOT_MEMBER);
+    expect(form().controls.preferredFaction.value).toBe('Local Lads');
+    expect(component['factionNote']()).toContain('commander sheet');
+  });
+
+  it('marks a sheet commander as not a member but leaves the faction alone when none is present', async () => {
+    form().controls.architect.setValue('Away Cmdr');
+    await fixture.whenStable();
+
+    expect(form().controls.affiliation.value).toBe(AFFILIATION_NOT_MEMBER);
+    expect(form().controls.preferredFaction.value).toBe('');
+  });
+
+  it('suggests commanders from the sheet while typing a partial name', async () => {
+    form().controls.architect.setValue('away');
+    await fixture.whenStable();
+
+    expect(component['architectSuggestions']()).toContain('Away Cmdr');
   });
 
   it('will not send an incomplete form', async () => {
