@@ -16,6 +16,7 @@ import { assignArchitectShareUrl } from '../data/assign-architect-link';
 import {
   AFFILIATION_CANONN_MEMBER,
   AFFILIATION_NOT_A_COLONY,
+  AFFILIATION_NOT_MEMBER,
   AFFILIATION_OPTIONS,
   AFFILIATION_UNKNOWN,
   ArchitectSubmission,
@@ -23,6 +24,7 @@ import {
 import { ArchitectRegistryRow, architectNames, findArchitectProfile, suggestArchitects } from '../data/architect-registry';
 import { isCanonnMember, mergeKnownNames } from '../data/canonn-members';
 import { CANONN_MEMBERS } from '../data/canonn-members-generated';
+import { FACTION_PREFERENCES_TOKEN, findPreferredFactions, pickPreferredFaction } from '../data/faction-preferences';
 import { readYourName, writeYourName } from '../data/your-name';
 
 /** The system the dialog is assigning an architect to. */
@@ -75,6 +77,7 @@ export class AssignArchitectDialogComponent implements OnDestroy {
   private readonly bgsService = inject(CanonnBgsService);
   private readonly dialogRef = inject(MatDialogRef<AssignArchitectDialogComponent, ArchitectSubmission>);
   private readonly data = inject<AssignArchitectDialogData>(MAT_DIALOG_DATA);
+  private readonly factionPreferences = inject(FACTION_PREFERENCES_TOKEN);
 
   protected readonly systemName = this.data.row.systemName;
   protected readonly inara = `https://inara.cz/elite/starsystem/?search=${encodeURIComponent(this.systemName)}`;
@@ -103,7 +106,13 @@ export class AssignArchitectDialogComponent implements OnDestroy {
   protected readonly registryLoading = signal(true);
 
   private readonly registry = signal<readonly ArchitectRegistryRow[]>([]);
-  private readonly knownArchitects = computed(() => mergeKnownNames(architectNames(this.registry()), CANONN_MEMBERS));
+  /** Registry names, the Canonn roster, and every commander on the faction-preference sheet. */
+  private readonly knownArchitects = computed(() =>
+    mergeKnownNames(architectNames(this.registry()), [
+      ...CANONN_MEMBERS,
+      ...this.factionPreferences.map(entry => ({ name: entry.cmdr })),
+    ]),
+  );
 
   /**
    * The form's values as signals, so the defaulting below can be expressed as computeds. They
@@ -134,6 +143,14 @@ export class AssignArchitectDialogComponent implements OnDestroy {
     () => this.data.row.factions.find(faction => CANONN_FACTION_NAMES.has(faction.name))?.name ?? null,
   );
 
+  /** Factions the typed commander listed as preferred on the commander sheet. */
+  private readonly sheetFactions = computed(() => findPreferredFactions(this.factionPreferences, this.architectValue()));
+
+  /** Of those, the one in this system with the most influence, if any. */
+  private readonly sheetFactionInSystem = computed(() =>
+    pickPreferredFaction(this.sheetFactions(), this.data.row.factions),
+  );
+
   private readonly factionDefault = computed<FactionDefault>(() => {
     if (this.affiliationValue() === AFFILIATION_CANONN_MEMBER) {
       const canonn = this.dominantCanonnFaction();
@@ -150,6 +167,10 @@ export class AssignArchitectDialogComponent implements OnDestroy {
         value: profile.preferredFaction,
         note: `${profile.name} has chosen ${profile.preferredFaction} ${times} in other systems.`,
       };
+    }
+    const sheetFaction = this.sheetFactionInSystem();
+    if (sheetFaction) {
+      return { value: sheetFaction, note: `${this.architectValue().trim()} listed ${sheetFaction} on the commander sheet.` };
     }
     return { value: DONT_KNOW_FACTION, note: null };
   });
@@ -193,6 +214,11 @@ export class AssignArchitectDialogComponent implements OnDestroy {
       }
       if (recorded && KNOWN_AFFILIATIONS.has(recorded)) {
         this.setAffiliation(recorded);
+        return;
+      }
+      // Listing a preferred faction on the commander sheet means they favour a non-Canonn faction.
+      if (this.sheetFactions().length > 0) {
+        this.setAffiliation(AFFILIATION_NOT_MEMBER);
         return;
       }
       if (isCanonnMember(CANONN_MEMBERS, this.architectValue())) {
